@@ -191,6 +191,7 @@ def selectUniqueRows(mat, sortOrd, tol, rTol):
     if n == 0:
         return selIdx, tuple(subRows)
     d = mat[0].shape[0]
+    subRows.append(0)
     for r in range(1,n):
         if vecEqualNb(mat[sortOrd[r-1]], mat[sortOrd[r]], tol, rTol):
             selIdx[r] = False
