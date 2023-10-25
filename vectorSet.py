@@ -20,7 +20,10 @@ class vectorSet:
         self.sortOrd = np.arange(self.N)
         quickSortRowwise(self.rows, self.sortOrd, self.tol, self.rTol)
         self.revSortOrd = getReverseOrder(self.sortOrd)
-        self.uniqRowNP, self.uniqRows = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
+        _ , self.uniqRowIdx = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
+        self.sortOrd = self.sortOrd.tolist()
+        self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+        self.uniqRows = [self.rows[i] for i in self.uniqRowIdx]
 
     def insertRow(self, vec):
         pass
