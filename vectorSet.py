@@ -32,11 +32,20 @@ class vectorSet:
     def getRows(self):
         return np.array( [self.scale[i]*self.rows[i] for i in range(self.N)] )
 
+    def getRowsSorted(self):
+        return np.array( [self.scale[self.sortOrd[i]]*self.rows[self.sortOrd[i]] for i in range(self.N)] )
+
     def getUniqueRows(self):
         if not self.uniqRowSorted:
             self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
             self.uniqRowSorted = True
         return np.array( [self.scale[i] * self.rows[i] for i in self.uniqRowIdx] )
+
+    def getUniqueRowsSorted(self):
+        if not self.uniqRowSorted:
+            self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+            self.uniqRowSorted = True
+        return np.array( [self.scale[self.sortOrd[i]] * self.rows[self.sortOrd[i]] for i in self.uniqRowIdx] )
 
     def insertRow(self, vec, includeDup=True):
         # includeDup=True will append the row to the full list of rows,
