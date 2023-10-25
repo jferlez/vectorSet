@@ -1,6 +1,6 @@
 import numpy as np
 import math
-
+import bisect
 # Numba imports
 import numba as nb
 from numba import njit
@@ -9,24 +9,60 @@ from numba.typed import Dict
 from numba.np.unsafe.ndarray import to_fixed_tuple
 
 class vectorSet:
-    def __init__(self, rows, tol=1e-9, rTol=1e-9):
+    def __init__(self, rows, tol=1e-9, rTol=1e-9, dirIndep=True):
         self.tol = tol
         self.rTol = rTol
+        self.dirIndep = dirIndep
         if not (isinstance(rows,np.ndarray) and len(rows.shape) == 2 and rows.dtype == np.float64):
             raise ValueError('Argument must be a 2-d NumPy array of float64\'s')
         self.d = rows.shape[1]
         self.N = rows.shape[0]
-        self.rows = nb.typed.List( [ rows[i].copy() for i in range(self.N) ] )
+        if self.dirIndep:
+            self.scale = [ (1.0 if r else -1.0) for r in (rows[:,0] >= 0.0) ]
+        else:
+            self.scale = [1.0 for r in range(self.N)]
+        self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
         self.sortOrd = np.arange(self.N)
         quickSortRowwise(self.rows, self.sortOrd, self.tol, self.rTol)
-        self.revSortOrd = getReverseOrder(self.sortOrd)
         _ , self.uniqRowIdx = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
         self.sortOrd = nb.typed.List( self.sortOrd )
         self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
-        self.uniqRows = [self.rows[i] for i in self.uniqRowIdx]
+        self.uniqRowSorted = True
+
+    def getRows(self):
+        return np.array( [self.scale[i]*self.rows[i] for i in range(self.N)] )
+
+    def getUniqueRows(self):
+        if not self.uniqRowSorted:
+            self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+            self.uniqRowSorted = True
+        return np.array( [self.scale[i] * self.rows[i] for i in self.uniqRowIdx] )
 
     def insertRow(self, vec, includeDup=True):
-        pass
+        # includeDup=True will append the row to the full list of rows,
+        # even if it is a duplicate
+        if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
+            raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
+        iVec = vec.flatten()
+        if self.dirIndep:
+            scale = 1.0 if iVec[0] >= 0 else -1.0
+            iVec = scale * iVec
+        else:
+            scale = 1.0
+        insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+        if isNew or includeDup:
+            self.N += 1
+            self.rows.append(iVec)
+            self.scale.append(scale)
+            self.sortOrd.insert(insertionPoint, self.N - 1)
+            if isNew:
+                if self.uniqRowSorted:
+                    rowIdxIP = bisect.insort(self.uniqRowIdx, self.sortOrd[insertionPoint])
+                else:
+                    self.uniqRowIdx.append(insertionPoint)
+                    self.uniqRowIdx.sort()
+                    self.uniqRowSorted = True
+        return isNew
 
     def vecEqual(self, vec1, vec2):
         return vecEqualNb(vec1, vec2, self.tol, self.rTol)
@@ -206,7 +242,7 @@ def selectUniqueRows(mat, sortOrd, tol, rTol):
             selIdx[r] = False
         else:
             subRows.append(r)
-    return selIdx, tuple(subRows)
+    return selIdx, subRows
 
 @njit( \
     types.boolean \
