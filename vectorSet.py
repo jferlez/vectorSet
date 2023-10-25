@@ -21,11 +21,11 @@ class vectorSet:
         quickSortRowwise(self.rows, self.sortOrd, self.tol, self.rTol)
         self.revSortOrd = getReverseOrder(self.sortOrd)
         _ , self.uniqRowIdx = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
-        self.sortOrd = self.sortOrd.tolist()
+        self.sortOrd = nb.typed.List( self.sortOrd )
         self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
         self.uniqRows = [self.rows[i] for i in self.uniqRowIdx]
 
-    def insertRow(self, vec):
+    def insertRow(self, vec, includeDup=True):
         pass
 
     def vecEqual(self, vec1, vec2):
@@ -36,7 +36,7 @@ class vectorSet:
 
 # Numba helper methods go here...
 
-searchType = types.Tuple((types.int64[:],types.int64[:]))
+searchType = types.Tuple((types.ListType( types.int64 ),types.int64[::1]))
 
 @njit( \
     types.boolean \
@@ -124,9 +124,9 @@ def getReverseOrder(reorder):
 @njit( \
     searchType \
     ( \
-       types.List( types.float64[:] ), \
+       types.ListType( types.float64[:] ), \
        types.float64[:], \
-       types.int64[:], \
+       types.ListType( types.int64 ), \
        types.int64, \
        types.float64, \
        types.float64 \
@@ -134,7 +134,7 @@ def getReverseOrder(reorder):
     cache=True \
 )
 def getRowsBinarySearch(mat, row, revSortOrd, col, tol, rTol):
-    n = revSortOrd.shape[0]
+    n = len(revSortOrd)
     d = row.shape[0]
     lb = -1
     ub = n
@@ -142,11 +142,14 @@ def getRowsBinarySearch(mat, row, revSortOrd, col, tol, rTol):
     windL = 0
     windR = n
     if n == 0:
-        return np.empty(d,dtype=np.int64), np.array([0, 0],dtype=np.int64)
+        retVal = nb.typed.List.empty_list(nb.int64)
+        return retVal, np.array([0, 0],dtype=np.int64)
     if row[col] > mat[revSortOrd[-1]][col] + tol + rTol * abs(mat[revSortOrd[-1]][col]):
-        return np.empty(d,dtype=np.int64), np.array([n, n],dtype=np.int64)
+        retVal = nb.typed.List.empty_list(nb.int64)
+        return retVal, np.array([n, n],dtype=np.int64)
     if row[col] < mat[revSortOrd[0]][col] - tol - rTol * abs(mat[revSortOrd[0]][col]):
-        return np.empty(d,dtype=np.int64), np.array([0, 0],dtype=np.int64)
+        retVal = nb.typed.List.empty_list(nb.int64)
+        return retVal, np.array([0, 0],dtype=np.int64)
 
     windL = 0
     windR = n - 1
@@ -205,9 +208,9 @@ def selectUniqueRows(mat, sortOrd, tol, rTol):
 @njit( \
     types.boolean \
     ( \
-       types.List( types.float64[:] ), \
-       types.int64[:], \
-       types.List( types.float64[:] ), \
+       types.ListType( types.float64[:] ), \
+       types.ListType(types.int64), \
+       types.ListType( types.float64[:] ), \
        types.float64, \
        types.float64 \
     ), \
@@ -227,10 +230,10 @@ def isSubsetApprox(mat1, sortOrd1, mat2, tol, rTol):
     for idx in range(n2):
         temp = sortOrd1
         col = 0
-        while temp.shape[0] > 0 and col < d:
+        while len(temp) > 0 and col < d:
             temp, _ = getRowsBinarySearch(mat1, mat2[idx], temp, col, tol, rTol)
             col = col + 1
-        if temp.shape[0] >= 1 and np.all(np.abs(mat1[temp[0]] - mat2[idx]) < tol):
+        if len(temp) >= 1 and np.all(np.abs(mat1[temp[0]] - mat2[idx]) < tol):
             foundCnt = foundCnt + 1
     if foundCnt == n2:
         return True
@@ -242,9 +245,9 @@ def isSubsetApprox(mat1, sortOrd1, mat2, tol, rTol):
 @njit( \
     types.boolean[:] \
     ( \
-       types.List( types.float64[:] ), \
-       types.int64[:], \
-       types.List( types.float64[:] ), \
+       types.ListType( types.float64[:] ), \
+       types.ListType(types.int64), \
+       types.ListType( types.float64[:] ), \
        types.float64, \
        types.float64 \
     ), \
@@ -264,10 +267,10 @@ def rowwiseSetComplement(mat1, sortOrd1, mat2, tol, rTol):
     for idx in range(n2):
         temp = sortOrd1
         col = 0
-        while temp.shape[0] > 0 and col < d:
+        while len(temp) > 0 and col < d:
             temp, _ = getRowsBinarySearch(mat1, mat2[idx], sortOrd1, col, tol, rTol)
             col = col + 1
-        if temp.shape[0] >= 1 and np.all(np.abs(mat1[temp[0]] - mat2[idx]) < tol):
+        if len(temp) >= 1 and np.all(np.abs(mat1[temp[0]] - mat2[idx]) < tol):
             retVal[idx] = False
     return retVal
 
