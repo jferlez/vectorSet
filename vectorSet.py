@@ -41,8 +41,8 @@ searchType = types.Tuple((types.ListType( types.int64 ),types.int64[::1]))
 @njit( \
     types.boolean \
     ( \
-       types.float64[:], \
-       types.float64[:], \
+       types.float64[::1], \
+       types.float64[::1], \
        types.float64, \
        types.float64 \
     ), \
@@ -124,8 +124,8 @@ def getReverseOrder(reorder):
 @njit( \
     searchType \
     ( \
-       types.ListType( types.float64[:] ), \
-       types.float64[:], \
+       types.ListType( types.float64[::1] ), \
+       types.float64[::1], \
        types.ListType( types.int64 ), \
        types.int64, \
        types.float64, \
@@ -182,7 +182,10 @@ def findInsertionPoint(mat, row, revSortOrd, tol, rTol):
     temp = revSortOrd
     loc = 0
     relLoc = (0,0)
-    while temp.shape[0] > 0 and col < d:
+    if len(mat) == 0:
+        return 0, False
+    d = mat[0].shape[0]
+    while len(temp) > 0 and col < d:
         loc += relLoc[0]
         revSortOrd, relLoc = getRowsBinarySearch(mat, row, revSortOrd, col, tol, rTol)
         col = col + 1
@@ -208,9 +211,9 @@ def selectUniqueRows(mat, sortOrd, tol, rTol):
 @njit( \
     types.boolean \
     ( \
-       types.ListType( types.float64[:] ), \
+       types.ListType( types.float64[::1] ), \
        types.ListType(types.int64), \
-       types.ListType( types.float64[:] ), \
+       types.ListType( types.float64[::1] ), \
        types.float64, \
        types.float64 \
     ), \
@@ -245,9 +248,9 @@ def isSubsetApprox(mat1, sortOrd1, mat2, tol, rTol):
 @njit( \
     types.boolean[:] \
     ( \
-       types.ListType( types.float64[:] ), \
+       types.ListType( types.float64[::1] ), \
        types.ListType(types.int64), \
-       types.ListType( types.float64[:] ), \
+       types.ListType( types.float64[::1] ), \
        types.float64, \
        types.float64 \
     ), \
