@@ -316,7 +316,7 @@ def rowwiseSetComplement(mat1, sortOrd1, mat2, tol, rTol):
         temp = sortOrd1
         col = 0
         while len(temp) > 0 and col < d:
-            temp, _ = getRowsBinarySearch(mat1, mat2[idx], sortOrd1, col, tol, rTol)
+            temp, _ = getRowsBinarySearch(mat1, mat2[idx], temp, col, tol, rTol)
             col = col + 1
         if len(temp) >= 1 and np.all(np.abs(mat1[temp[0]] - mat2[idx]) < tol):
             retVal[idx] = False
