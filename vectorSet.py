@@ -73,6 +73,27 @@ class vectorSet:
                     self.uniqRowSorted = True
         return isNew
 
+    def subtractSet(self, minusSet, subUniqueRows=True):
+        if not isinstance(minusSet, vectorSet):
+            raise ValueError(f'Argument must be a vectorSet')
+        subRows = rowwiseSetComplement(minusSet.rows, minusSet.sortOrd, self.rows, self.tol, self.rTol)
+        if subUniqueRows:
+            return sorted(list(set(self.uniqRowIdx) & set(np.nonzero(subRows)[0])))
+        else:
+            return sorted(list(np.nonzero(subRows)[0]))
+
+    def isElem(self, vec):
+        if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
+            raise ValueError(f'Can only check floating point numpy vectors of length {self.d}')
+        iVec = vec.flatten()
+        if self.dirIndep:
+            scale = 1.0 if iVec[0] >= 0 else -1.0
+            iVec = scale * iVec
+        else:
+            scale = 1.0
+        insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+        return not isNew
+
     def vecEqual(self, vec1, vec2):
         return vecEqualNb(vec1, vec2, self.tol, self.rTol)
 
