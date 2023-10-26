@@ -18,7 +18,7 @@ class vectorSet:
         self.d = rows.shape[1]
         self.N = rows.shape[0]
         if self.dirIndep:
-            self.scale = [ (1.0 if r else -1.0) for r in (rows[:,0] >= 0.0) ]
+            self.scale = [ (1.0 if rows[i,0] >= 0.0 else -1.0) / np.linalg.norm(rows[i,:]) for i in range(rows.shape[0]) ]
         else:
             self.scale = [1.0 for r in range(self.N)]
         self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
@@ -30,22 +30,22 @@ class vectorSet:
         self.uniqRowSorted = True
 
     def getRows(self):
-        return np.array( [self.scale[i]*self.rows[i] for i in range(self.N)] )
+        return np.array( [(1/self.scale[i])*self.rows[i] for i in range(self.N)] )
 
     def getRowsSorted(self):
-        return np.array( [self.scale[self.sortOrd[i]]*self.rows[self.sortOrd[i]] for i in range(self.N)] )
+        return np.array( [(1/self.scale[self.sortOrd[i]])*self.rows[self.sortOrd[i]] for i in range(self.N)] )
 
     def getUniqueRows(self):
         if not self.uniqRowSorted:
             self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
             self.uniqRowSorted = True
-        return np.array( [self.scale[i] * self.rows[i] for i in self.uniqRowIdx] )
+        return np.array( [(1/self.scale[i]) * self.rows[i] for i in self.uniqRowIdx] )
 
     def getUniqueRowsSorted(self):
         if not self.uniqRowSorted:
             self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
             self.uniqRowSorted = True
-        return np.array( [self.scale[self.sortOrd[i]] * self.rows[self.sortOrd[i]] for i in self.uniqRowIdx] )
+        return np.array( [(1/self.scale[self.sortOrd[i]]) * self.rows[self.sortOrd[i]] for i in self.uniqRowIdx] )
 
     def insertRow(self, vec, includeDup=True):
         # includeDup=True will append the row to the full list of rows,
@@ -54,7 +54,7 @@ class vectorSet:
             raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = 1.0 if iVec[0] >= 0 else -1.0
+            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec)
             iVec = scale * iVec
         else:
             scale = 1.0
