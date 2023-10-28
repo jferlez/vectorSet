@@ -24,6 +24,7 @@ class vectorSet:
         self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
         self.sortOrd = np.arange(self.N)
         quickSortRowwise(self.rows, self.sortOrd, self.tol, self.rTol)
+        self.revSortOrd = getReverseOrder(self.sortOrd)
         _ , self.uniqRowIdx = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
         self.sortOrd = nb.typed.List( self.sortOrd )
         self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
@@ -64,6 +65,7 @@ class vectorSet:
             self.rows.append(iVec)
             self.scale.append(scale)
             self.sortOrd.insert(insertionPoint, self.N - 1)
+            self.revSortOrd.append(insertionPoint)
             if isNew:
                 if self.uniqRowSorted:
                     rowIdxIP = bisect.insort(self.uniqRowIdx, self.sortOrd[insertionPoint])
@@ -72,6 +74,20 @@ class vectorSet:
                     self.uniqRowIdx.sort()
                     self.uniqRowSorted = True
         return isNew
+
+    def expandDuplicates(self,idxOrigOrder):
+        before = []
+        after = []
+        origIdx = self.revSortOrd[idxOrigOrder]
+        idx = origIdx
+        while idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]],self.rows[idxOrigOrder],self.tol,self.rTol):
+            before.append(self.sortOrd[idx])
+            idx -= 1
+        idx = origIdx + 1
+        while idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]],self.rows[idxOrigOrder],self.tol,self.rTol):
+            after.append(self.sortOrd[idx])
+            idx += 1
+        return sorted(before + after)
 
     def subtractSet(self, minusSet, subUniqueRows=True):
         if not isinstance(minusSet, vectorSet):
