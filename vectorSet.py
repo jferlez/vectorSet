@@ -58,7 +58,7 @@ class vectorSet:
             iVec = scale * iVec
         else:
             scale = 1.0
-        insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+        _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         if isNew or includeDup:
             self.N += 1
             self.rows.append(iVec)
@@ -91,7 +91,7 @@ class vectorSet:
             iVec = scale * iVec
         else:
             scale = 1.0
-        insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+        _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         return not isNew
 
     def vecEqual(self, vec1, vec2):
@@ -256,7 +256,7 @@ def findInsertionPoint(mat, row, revSortOrd, tol, rTol):
         revSortOrd, relLoc = getRowsBinarySearch(mat, row, revSortOrd, col, tol, rTol)
         col = col + 1
     # Leave here
-    return  loc + relLoc[1], (True if relLoc[1] - relLoc[0] == 0 else False)
+    return  loc + relLoc[0], loc + relLoc[1], (True if relLoc[1] - relLoc[0] == 0 else False)
 
 def selectUniqueRows(mat, sortOrd, tol, rTol):
     n = sortOrd.shape[0]
