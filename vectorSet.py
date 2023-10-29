@@ -103,7 +103,7 @@ class vectorSet:
             raise ValueError(f'Can only check floating point numpy vectors of length {self.d}')
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = 1.0 if iVec[0] >= 0 else -1.0
+            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec)
             iVec = scale * iVec
         else:
             scale = 1.0
