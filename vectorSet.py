@@ -24,7 +24,7 @@ class vectorSet:
         self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
         self.sortOrd = np.arange(self.N)
         quickSortRowwise(self.rows, self.sortOrd, self.tol, self.rTol)
-        self.revSortOrd = getReverseOrder(self.sortOrd)
+        self.revSortOrd = getReverseOrder(self.sortOrd).tolist()
         _ , self.uniqRowIdx = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
         self.sortOrd = nb.typed.List( self.sortOrd )
         self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
