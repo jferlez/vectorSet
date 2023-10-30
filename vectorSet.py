@@ -41,9 +41,9 @@ class vectorSet:
         self.serialized = True
         return self
     def deserialize(self):
-        self.rowsPy = nb.typed.List(self.rowsPy)
+        self.rows = nb.typed.List(self.rowsPy)
         self.rowsPy = None
-        self.sortOrdPy = nb.typed.List(self.sortOrdPy)
+        self.sortOrd = nb.typed.List(self.sortOrdPy)
         self.sortOrdPy = None
         self.serialized = False
         return self
