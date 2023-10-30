@@ -22,33 +22,59 @@ class vectorSet:
         else:
             self.scale = [1.0 for r in range(self.N)]
         self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
+        self.rowsPy = None
         self.sortOrd = np.arange(self.N)
         quickSortRowwise(self.rows, self.sortOrd, self.tol, self.rTol)
         self.revSortOrd = getReverseOrder(self.sortOrd).tolist()
         _ , self.uniqRowIdx = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
         self.sortOrd = nb.typed.List( self.sortOrd )
+        self.sortOrdPy = None
         self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
         self.uniqRowSorted = True
+        self.serialized = False
+
+    def serialize(self):
+        self.rowsPy = list(self.rows)
+        self.rows = None
+        self.sortOrdPy = list(self.sortOrd)
+        self.sortOrd = None
+        self.serialized = True
+    def deserialize(self):
+        self.rowsPy = nb.typed.List(self.rowsPy)
+        self.rowsPy = None
+        self.sortOrdPy = nb.typed.List(self.sortOrdPy)
+        self.sortOrdPy = None
+        self.serialized = False
 
     def getRows(self):
+        if self.serialized:
+            self.deserialize()
         return np.array( [(1/self.scale[i])*self.rows[i] for i in range(self.N)] )
 
     def getRowsSorted(self):
+        if self.serialized:
+            self.deserialize()
         return np.array( [(1/self.scale[self.sortOrd[i]])*self.rows[self.sortOrd[i]] for i in range(self.N)] )
 
     def getUniqueRows(self):
+        if self.serialized:
+            self.deserialize()
         if not self.uniqRowSorted:
             self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
             self.uniqRowSorted = True
         return np.array( [(1/self.scale[i]) * self.rows[i] for i in self.uniqRowIdx] )
 
     def getUniqueRowsSorted(self):
+        if self.serialized:
+            self.deserialize()
         if not self.uniqRowSorted:
             self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
             self.uniqRowSorted = True
         return np.array( [(1/self.scale[self.sortOrd[i]]) * self.rows[self.sortOrd[i]] for i in self.uniqRowIdx] )
 
     def insertRow(self, vec, includeDup=True):
+        if self.serialized:
+            self.deserialize()
         # includeDup=True will append the row to the full list of rows,
         # even if it is a duplicate
         if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
@@ -76,6 +102,8 @@ class vectorSet:
         return isNew
 
     def expandDuplicates(self,idxOrigOrder):
+        if self.serialized:
+            self.deserialize()
         before = []
         after = []
         origIdx = self.revSortOrd[idxOrigOrder]
@@ -92,6 +120,8 @@ class vectorSet:
     def subtractSet(self, minusSet, subUniqueRows=True):
         if not isinstance(minusSet, vectorSet):
             raise ValueError(f'Argument must be a vectorSet')
+        if self.serialized:
+            self.deserialize()
         subRows = rowwiseSetComplement(minusSet.rows, minusSet.sortOrd, self.rows, self.tol, self.rTol)
         if subUniqueRows:
             return sorted(list(set(self.uniqRowIdx) & set(np.nonzero(subRows)[0])))
@@ -101,6 +131,8 @@ class vectorSet:
     def isElem(self, vec):
         if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
             raise ValueError(f'Can only check floating point numpy vectors of length {self.d}')
+        if self.serialized:
+            self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
             scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec)
