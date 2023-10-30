@@ -34,18 +34,20 @@ class vectorSet:
         self.serialized = False
 
     def serialize(self):
-        self.rowsPy = list(self.rows)
-        self.rows = None
-        self.sortOrdPy = list(self.sortOrd)
-        self.sortOrd = None
-        self.serialized = True
+        if not self.serialized:
+            self.rowsPy = list(self.rows)
+            self.rows = None
+            self.sortOrdPy = list(self.sortOrd)
+            self.sortOrd = None
+            self.serialized = True
         return self
     def deserialize(self):
-        self.rows = nb.typed.List(self.rowsPy)
-        self.rowsPy = None
-        self.sortOrd = nb.typed.List(self.sortOrdPy)
-        self.sortOrdPy = None
-        self.serialized = False
+        if self.serialized:
+            self.rows = nb.typed.List(self.rowsPy)
+            self.rowsPy = None
+            self.sortOrd = nb.typed.List(self.sortOrdPy)
+            self.sortOrdPy = None
+            self.serialized = False
         return self
 
     def getRows(self):
