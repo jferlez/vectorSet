@@ -108,7 +108,7 @@ class vectorSet:
     def expandDuplicates(self,idxOrigOrder):
         if self.serialized:
             self.deserialize()
-        before = []
+        before = [idxOrigOrder]
         after = []
         origIdx = self.revSortOrd[idxOrigOrder]
         idx = origIdx
