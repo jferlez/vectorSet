@@ -108,7 +108,9 @@ class vectorSet:
     def expandDuplicates(self,idxOrigOrder):
         if self.serialized:
             self.deserialize()
-        before = [idxOrigOrder]
+        if idxOrigOrder >= self.N or idxOrigOrder < 0:
+            raise ValueError(f'expandDuplicates: argument must be between {0} and {self.N}')
+        before = []
         after = []
         origIdx = self.revSortOrd[idxOrigOrder]
         idx = origIdx
@@ -177,7 +179,7 @@ def vecCompareNb(vec1, vec2, tol, rTol):
     return inOrder
 
 def vecEqualNb(vec1,vec2, tol, rTol):
-    return np.all(np.abs(vec1 - vec2) <= tol + rTol * np.abs(vec2)) or np.all(np.abs(vec1 + vec2) <= tol + rTol * np.abs(vec2))
+    return np.all(np.abs(vec1.reshape(vec2.shape) - vec2) <= tol + rTol * np.abs(vec2)) or np.all(np.abs(vec1.reshape(vec2.shape) + vec2) <= tol + rTol * np.abs(vec2))
 
 @njit( \
     types.int64 \
