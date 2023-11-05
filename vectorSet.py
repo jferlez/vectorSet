@@ -95,6 +95,8 @@ class vectorSet:
             self.rows.append(iVec)
             self.scale.append(scale)
             self.sortOrd.insert(insertionPoint, self.N - 1)
+            for idx in range(insertionPoint+1, self.N):
+                self.revSortOrd[self.sortOrd[idx]] += 1
             self.revSortOrd.append(insertionPoint)
             if isNew:
                 if self.uniqRowSorted:
