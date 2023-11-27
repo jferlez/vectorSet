@@ -176,7 +176,7 @@ def vecCompareNb(vec1, vec2, tol, rTol):
         if vec1[i] >= tol + rTol * abs(vec2[i]) + vec2[i]:
             inOrder = False
             break
-        elif vec1[i] <= tol + rTol * abs(vec2[i]) + vec2[i]:
+        elif vec1[i] <= -tol - rTol * abs(vec2[i]) + vec2[i]:
             break
     return inOrder
 
