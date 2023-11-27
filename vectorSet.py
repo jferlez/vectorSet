@@ -173,10 +173,10 @@ searchType = types.Tuple((types.ListType( types.int64 ),types.int64[::1]))
 def vecCompareNb(vec1, vec2, tol, rTol):
     inOrder = True
     for i in range(vec1.shape[0]):
-        if vec1[i] >= tol + rTol * vec2[i] + vec2[i]:
+        if vec1[i] >= tol + rTol * abs(vec2[i]) + vec2[i]:
             inOrder = False
             break
-        elif vec1[i] <= tol + rTol * vec2[i] + vec2[i]:
+        elif vec1[i] <= tol + rTol * abs(vec2[i]) + vec2[i]:
             break
     return inOrder
 
