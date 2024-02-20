@@ -150,6 +150,20 @@ class vectorSet:
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         return not isNew
 
+    def selectRow(self, vec):
+        if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
+            raise ValueError(f'Can only check floating point numpy vectors of length {self.d}')
+        if self.serialized:
+            self.deserialize()
+        iVec = vec.flatten()
+        if self.dirIndep:
+            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec)
+            iVec = scale * iVec
+        else:
+            scale = 1.0
+        _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+        return (not isNew, insertionPoint)
+
     def vecEqual(self, vec1, vec2):
         return vecEqualNb(vec1, vec2, self.tol, self.rTol)
 
