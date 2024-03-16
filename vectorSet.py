@@ -9,7 +9,7 @@ from numba.typed import Dict
 from numba.np.unsafe.ndarray import to_fixed_tuple
 
 class vectorSet:
-    def __init__(self, rows, tol=1e-9, rTol=1e-9, dirIndep=True):
+    def __init__(self, rows, tol=1e-9, rTol=1e-9, dirIndep=True, tailMask=1):
         self.tol = tol
         self.rTol = rTol
         self.dirIndep = dirIndep
@@ -17,8 +17,11 @@ class vectorSet:
             raise ValueError('Argument must be a 2-d NumPy array of float64\'s')
         self.d = rows.shape[1]
         self.N = rows.shape[0]
+        if not isinstance(tailMask,int) and tailMask >=0 and tailMask < self.d - 1:
+            raise ValueError(f'tailMask argument must be an integer between 0 and {self.d}')
+        self.tailMask = tailMask
         if self.dirIndep:
-            self.scale = [ (1.0 if rows[i,0] >= 0.0 else -1.0) / np.linalg.norm(rows[i,:]) for i in range(rows.shape[0]) ]
+            self.scale = ( np.sign(np.sign(rows[:,0]) + 0.1) / np.linalg.norm(rows[:,:(self.d - self.tailMask)],axis=1) ).tolist()
         else:
             self.scale = [1.0 for r in range(self.N)]
         self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
@@ -85,7 +88,7 @@ class vectorSet:
             raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec)
+            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec[:(self.d - self.tailMask)])
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -107,7 +110,7 @@ class vectorSet:
                     self.uniqRowSorted = True
         return isNew
 
-    def expandDuplicates(self,idxOrigOrder):
+    def expandDuplicates(self,idxOrigOrder,ref=None,tailMask=0):
         if self.serialized:
             self.deserialize()
         if idxOrigOrder >= self.N or idxOrigOrder < 0:
@@ -115,12 +118,17 @@ class vectorSet:
         before = []
         after = []
         origIdx = self.revSortOrd[idxOrigOrder]
+        if ref is None:
+            ref = self.rows[idxOrigOrder]
+        else:
+            assert isinstance(ref,np.ndarray) and ref.size == self.d
+            ref = ref.copy().flatten()
         idx = origIdx
-        while idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]],self.rows[idxOrigOrder],self.tol,self.rTol):
+        while idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]][:(self.d - tailMask)],ref[:(self.d - tailMask)],self.tol,self.rTol):
             before.append(self.sortOrd[idx])
             idx -= 1
         idx = origIdx + 1
-        while idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]],self.rows[idxOrigOrder],self.tol,self.rTol):
+        while idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][:(self.d - tailMask)],self.rows[idxOrigOrder][:(self.d - tailMask)],self.tol,self.rTol):
             after.append(self.sortOrd[idx])
             idx += 1
         return sorted(before + after)
@@ -143,7 +151,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec)
+            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec[:(self.d - self.tailMask)])
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -157,12 +165,39 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec)
+            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec[:(self.d - self.tailMask)])
             iVec = scale * iVec
         else:
             scale = 1.0
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         return (not isNew, insertionPoint)
+
+    def listParallel(self, vec):
+        if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
+            raise ValueError(f'Can only check floating point numpy vectors of length {self.d}')
+        if self.serialized:
+            self.deserialize()
+        iVec = vec.flatten()
+        if self.dirIndep:
+            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec[:(self.d - self.tailMask)])
+            iVec = scale * iVec
+        else:
+            scale = 1.0
+        _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+        for off in [max(insertionPoint-1,0),insertionPoint,min(insertionPoint+1,self.N)]:
+            if vecEqualNb(self.rows[self.sortOrd[off]][:(self.d - self.tailMask)],iVec[:(self.d - self.tailMask)],self.tol,self.rTol):
+                insertionPoint = off
+                break
+        # Can obviously be optimized
+        if not isNew:
+            identicalHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],tailMask=0))
+        else:
+            identicalHyperplanes = set()
+        parallelHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],ref=iVec,tailMask=1)) - identicalHyperplanes
+        if not isNew or len(parallelHyperplanes) > 0:
+            return (sorted(list(identicalHyperplanes)), sorted(list(parallelHyperplanes)))
+        else:
+            return None
 
     def vecEqual(self, vec1, vec2):
         return vecEqualNb(vec1, vec2, self.tol, self.rTol)
