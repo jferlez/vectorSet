@@ -21,7 +21,7 @@ class vectorSet:
             raise ValueError(f'tailMask argument must be an integer between 0 and {self.d}')
         self.tailMask = tailMask
         if self.dirIndep:
-            self.scale = ( np.sign(np.sign(rows[:,0]) + 0.1) / np.linalg.norm(rows[:,:(self.d - self.tailMask)],axis=1) ).tolist()
+            self.scale = ( np.sign(np.sign(rows[:,-1]) + 0.1) / np.linalg.norm(rows[:,self.tailMask:self.d],axis=1) ).tolist()
         else:
             self.scale = [1.0 for r in range(self.N)]
         self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
@@ -88,7 +88,7 @@ class vectorSet:
             raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec[:(self.d - self.tailMask)])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -124,11 +124,11 @@ class vectorSet:
             assert isinstance(ref,np.ndarray) and ref.size == self.d
             ref = ref.copy().flatten()
         idx = origIdx
-        while idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]][:(self.d - tailMask)],ref[:(self.d - tailMask)],self.tol,self.rTol):
+        while idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],ref[tailMask:self.d],self.tol,self.rTol):
             before.append(self.sortOrd[idx])
             idx -= 1
         idx = origIdx + 1
-        while idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][:(self.d - tailMask)],self.rows[idxOrigOrder][:(self.d - tailMask)],self.tol,self.rTol):
+        while idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],self.rows[idxOrigOrder][tailMask:self.d],self.tol,self.rTol):
             after.append(self.sortOrd[idx])
             idx += 1
         return sorted(before + after)
@@ -151,7 +151,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec[:(self.d - self.tailMask)])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -165,7 +165,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec[:(self.d - self.tailMask)])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -179,13 +179,13 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[0] >= 0 else -1.0) / np.linalg.norm(iVec[:(self.d - self.tailMask)])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
             iVec = scale * iVec
         else:
             scale = 1.0
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         for off in [max(insertionPoint-1,0),insertionPoint,min(insertionPoint+1,self.N)]:
-            if vecEqualNb(self.rows[self.sortOrd[off]][:(self.d - self.tailMask)],iVec[:(self.d - self.tailMask)],self.tol,self.rTol):
+            if vecEqualNb(self.rows[self.sortOrd[off]][self.tailMask:self.d],iVec[self.tailMask:self.d],self.tol,self.rTol):
                 insertionPoint = off
                 break
         # Can obviously be optimized
@@ -221,7 +221,7 @@ searchType = types.Tuple((types.ListType( types.int64 ),types.int64[::1]))
 )
 def vecCompareNb(vec1, vec2, tol, rTol):
     inOrder = True
-    for i in range(vec1.shape[0]):
+    for i in range(vec1.shape[0]-1,-1,-1):
         if vec1[i] >= tol + rTol * abs(vec2[i]) + vec2[i]:
             inOrder = False
             break
@@ -356,10 +356,11 @@ def findInsertionPoint(mat, row, revSortOrd, tol, rTol):
     if len(mat) == 0:
         return 0, False
     d = mat[0].shape[0]
-    while len(temp) > 0 and col < d:
+    col = d-1
+    while len(temp) > 0 and col >= 0:
         loc += relLoc[0]
         revSortOrd, relLoc = getRowsBinarySearch(mat, row, revSortOrd, col, tol, rTol)
-        col = col + 1
+        col = col - 1
     # Leave here
     return  loc + relLoc[0], loc + relLoc[1], (True if relLoc[1] - relLoc[0] == 0 else False)
 
@@ -403,10 +404,10 @@ def isSubsetApprox(mat1, sortOrd1, mat2, tol, rTol):
     foundCnt = 0
     for idx in range(n2):
         temp = sortOrd1
-        col = 0
-        while len(temp) > 0 and col < d:
+        col = d-1
+        while len(temp) > 0 and col >= 0:
             temp, _ = getRowsBinarySearch(mat1, mat2[idx], temp, col, tol, rTol)
-            col = col + 1
+            col = col - 1
         if len(temp) >= 1 and np.all(np.abs(mat1[temp[0]] - mat2[idx]) < tol):
             foundCnt = foundCnt + 1
     if foundCnt == n2:
@@ -440,10 +441,10 @@ def rowwiseSetComplement(mat1, sortOrd1, mat2, tol, rTol):
     foundCnt = 0
     for idx in range(n2):
         temp = sortOrd1
-        col = 0
-        while len(temp) > 0 and col < d:
+        col = d-1
+        while len(temp) > 0 and col >= 0:
             temp, _ = getRowsBinarySearch(mat1, mat2[idx], temp, col, tol, rTol)
-            col = col + 1
+            col = col - 1
         if len(temp) >= 1 and np.all(np.abs(mat1[temp[0]] - mat2[idx]) < tol):
             retVal[idx] = False
     return retVal
