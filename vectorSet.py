@@ -33,6 +33,7 @@ class vectorSet:
         self.sortOrd = nb.typed.List( self.sortOrd )
         self.sortOrdPy = None
         self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+        self.Nunique = len(self.uniqRowIdx)
         self.uniqRowSorted = True
         self.serialized = False
 
@@ -108,6 +109,7 @@ class vectorSet:
                     self.uniqRowIdx.append(insertionPoint)
                     self.uniqRowIdx.sort()
                     self.uniqRowSorted = True
+                self.Nunique = len(self.uniqRowIdx)
         return isNew
 
     def expandDuplicates(self,idxOrigOrder,ref=None,tailMask=0):
