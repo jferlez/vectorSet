@@ -186,7 +186,7 @@ class vectorSet:
         else:
             scale = 1.0
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
-        for off in [max(insertionPoint-1,0),insertionPoint,min(insertionPoint+1,self.N)]:
+        for off in [max(insertionPoint-1,0),insertionPoint,min(insertionPoint+1,self.N-1)]:
             if vecEqualNb(self.rows[self.sortOrd[off]][self.tailMask:self.d],iVec[self.tailMask:self.d],self.tol,self.rTol):
                 insertionPoint = off
                 break
