@@ -186,15 +186,20 @@ class vectorSet:
         else:
             scale = 1.0
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
-        for off in [max(insertionPoint-1,0),max(min(insertionPoint,self.N-1),0),min(insertionPoint+1,self.N-1)]:
-            if vecEqualNb(self.rows[self.sortOrd[off]][self.tailMask:self.d],iVec[self.tailMask:self.d],self.tol,self.rTol):
+        cnt = 0
+        foundMatch = False
+        for off in [insertionPoint-1,insertionPoint,insertionPoint+1]:
+            if off >=0 and off < self.N and vecEqualNb(self.rows[self.sortOrd[off]][self.tailMask:self.d],iVec[self.tailMask:self.d],self.tol,self.rTol):
                 insertionPoint = off
+                foundMatch = True
                 break
+            cnt += 1
         # Can obviously be optimized
-        if not isNew:
+        if not isNew and foundMatch:
             identicalHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],tailMask=0))
         else:
             identicalHyperplanes = set()
+        insertionPoint = max(min(insertionPoint, self.N - 1),0)
         parallelHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],ref=iVec,tailMask=1)) - identicalHyperplanes
         if not isNew or len(parallelHyperplanes) > 0:
             return (sorted(list(identicalHyperplanes)), sorted(list(parallelHyperplanes)))
