@@ -189,7 +189,7 @@ class vectorSet:
         cnt = 0
         foundMatch = False
         for off in [insertionPoint-1,insertionPoint,insertionPoint+1]:
-            if off >=0 and off < self.N and vecEqualNb(self.rows[self.sortOrd[off]][self.tailMask:self.d],iVec[self.tailMask:self.d],self.tol,self.rTol):
+            if off >=0 and off < self.N and vecEqualNb(self.rows[self.sortOrd[off]][0:self.d],iVec[0:self.d],self.tol,self.rTol):
                 insertionPoint = off
                 foundMatch = True
                 break
@@ -199,8 +199,18 @@ class vectorSet:
             identicalHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],tailMask=0))
         else:
             identicalHyperplanes = set()
-        insertionPoint = max(min(insertionPoint, self.N - 1),0)
-        parallelHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],ref=iVec,tailMask=1)) - identicalHyperplanes
+        cnt = 0
+        foundMatch = False
+        for off in [insertionPoint-1,insertionPoint,insertionPoint+1]:
+            if off >=0 and off < self.N and vecEqualNb(self.rows[self.sortOrd[off]][self.tailMask:self.d],iVec[self.tailMask:self.d],self.tol,self.rTol):
+                insertionPoint = off
+                foundMatch = True
+                break
+            cnt += 1
+        if foundMatch:
+            parallelHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],ref=iVec,tailMask=self.tailMask)) - identicalHyperplanes
+        else:
+            parallelHyperplanes = set()
         if not isNew or len(parallelHyperplanes) > 0:
             return (sorted(list(identicalHyperplanes)), sorted(list(parallelHyperplanes)))
         else:
