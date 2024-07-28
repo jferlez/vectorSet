@@ -135,6 +135,41 @@ class vectorSet:
             idx += 1
         return sorted(before + after)
 
+    # Returns (isNew, index into self.rows, index into self.uniqRowIdx) for the duplicate of the
+    # provided input vector
+    def findUniqueDuplicate(self,vec,tailMask=0):
+        if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
+            raise ValueError(f'Can only search for floating point numpy vectors of length {self.d}')
+        iVec = vec.flatten()
+        if self.dirIndep:
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
+            iVec = scale * iVec
+        else:
+            scale = 1.0
+        _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+        if isNew:
+            return isNew, None, None
+        else:
+            idx = insertionPoint - 1
+            if idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],iVec[tailMask:self.d],self.tol,self.rTol):
+                origIdx = list( set(self.uniqRowIdx) & set(self.expandDuplicates(self.sortOrd[idx],tailMask=tailMask)) )[0]
+                if self.uniqRowSorted:
+                    i = bisect.bisect_left(self.uniqRowIdx, origIdx)
+                    if i < len(self.uniqRowIdx) and self.uniqRowIdx[i] == origIdx:
+                        return isNew, origIdx, i
+                    else:
+                        return isNew, origIdx, [i for i in range(self.uniqRowIdx) if self.uniqRowIdx[i] == origIdx]
+            idx = insertionPoint + 1
+            if idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],iVec[tailMask:self.d],self.tol,self.rTol):
+                origIdx = list( set(self.uniqRowIdx) & set(self.expandDuplicates(self.sortOrd[idx],tailMask=tailMask)) )[0]
+                if self.uniqRowSorted:
+                    i = bisect.bisect_left(self.uniqRowIdx, origIdx)
+                    if i < len(self.uniqRowIdx) and self.uniqRowIdx[i] == origIdx:
+                        return isNew, origIdx, i
+                    else:
+                        return isNew, origIdx, [i for i in range(self.uniqRowIdx) if self.uniqRowIdx[i] == origIdx]
+            return isNew, None, -1
+
     def subtractSet(self, minusSet, subUniqueRows=True):
         if not isinstance(minusSet, vectorSet):
             raise ValueError(f'Argument must be a vectorSet')
