@@ -33,6 +33,7 @@ class vectorSet:
         self.sortOrd = nb.typed.List( self.sortOrd )
         self.sortOrdPy = None
         self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+        self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
         self.Nunique = len(self.uniqRowIdx)
         self.uniqRowSorted = True
         self.serialized = False
@@ -105,9 +106,12 @@ class vectorSet:
             if isNew:
                 if self.uniqRowSorted:
                     rowIdxIP = bisect.insort(self.uniqRowIdx, self.sortOrd[insertionPoint])
+                    for i in range(rowIdxIP,len(self.uniqRowIdx)):
+                        self.uniqRowIdxSet[self.uniqRowIdx[i]] += 1
                 else:
                     self.uniqRowIdx.append(insertionPoint)
                     self.uniqRowIdx.sort()
+                    self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
                     self.uniqRowSorted = True
                 self.Nunique = len(self.uniqRowIdx)
         return isNew
@@ -152,7 +156,7 @@ class vectorSet:
         else:
             idx = insertionPoint - 1
             if idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],iVec[tailMask:self.d],self.tol,self.rTol):
-                origIdx = list( set(self.uniqRowIdx) & set(self.expandDuplicates(self.sortOrd[idx],tailMask=tailMask)) )[0]
+                origIdx = list( self.uniqRowIdxSet.keys() & set(self.expandDuplicates(self.sortOrd[idx],tailMask=tailMask)) )[0]
                 if self.uniqRowSorted:
                     i = bisect.bisect_left(self.uniqRowIdx, origIdx)
                     if i < len(self.uniqRowIdx) and self.uniqRowIdx[i] == origIdx:
@@ -161,7 +165,7 @@ class vectorSet:
                         return isNew, origIdx, [i for i in range(self.uniqRowIdx) if self.uniqRowIdx[i] == origIdx]
             idx = insertionPoint + 1
             if idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],iVec[tailMask:self.d],self.tol,self.rTol):
-                origIdx = list( set(self.uniqRowIdx) & set(self.expandDuplicates(self.sortOrd[idx],tailMask=tailMask)) )[0]
+                origIdx = list( self.uniqRowIdxSet.keys() & set(self.expandDuplicates(self.sortOrd[idx],tailMask=tailMask)) )[0]
                 if self.uniqRowSorted:
                     i = bisect.bisect_left(self.uniqRowIdx, origIdx)
                     if i < len(self.uniqRowIdx) and self.uniqRowIdx[i] == origIdx:
@@ -177,7 +181,7 @@ class vectorSet:
             self.deserialize()
         subRows = rowwiseSetComplement(minusSet.rows, minusSet.sortOrd, self.rows, self.tol, self.rTol)
         if subUniqueRows:
-            return sorted(list(set(self.uniqRowIdx) & set(np.nonzero(subRows)[0])))
+            return sorted(list(self.uniqRowIdxSet.keys() & set(np.nonzero(subRows)[0])))
         else:
             return sorted(list(np.nonzero(subRows)[0]))
 
