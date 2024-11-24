@@ -21,7 +21,7 @@ class vectorSet:
             raise ValueError(f'tailMask argument must be an integer between 0 and {self.d}')
         self.tailMask = tailMask
         if self.dirIndep:
-            self.scale = ( np.sign(np.sign(rows[:,-1]) + 0.1) / np.linalg.norm(rows[:,self.tailMask:self.d],axis=1) ).tolist()
+            self.scale = ( np.sign(np.sign(rows[:,-1]) + 0.1) * np.nan_to_num(1/np.linalg.norm(rows[:,self.tailMask:self.d],axis=1), nan=1.0, posinf=1.0)  ).tolist()
         else:
             self.scale = [1.0 for r in range(self.N)]
         self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
@@ -90,7 +90,7 @@ class vectorSet:
             raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.nan_to_num( np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -146,7 +146,7 @@ class vectorSet:
             raise ValueError(f'Can only search for floating point numpy vectors of length {self.d}')
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) * np.nan_to_num( 1/np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -192,7 +192,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) * np.nan_to_num( 1/np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -206,7 +206,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) * np.nan_to_num( 1/np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -220,7 +220,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.linalg.norm(iVec[self.tailMask:self.d])
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) * np.nan_to_num( 1/np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
             iVec = scale * iVec
         else:
             scale = 1.0
