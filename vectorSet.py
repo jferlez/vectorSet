@@ -7,6 +7,7 @@ from numba import njit
 from numba.core import types
 from numba.typed import Dict
 from numba.np.unsafe.ndarray import to_fixed_tuple
+from copy import copy, deepcopy
 
 class vectorSet:
     def __init__(self, rows, tol=1e-9, rTol=1e-9, dirIndep=True, tailMask=1):
@@ -105,8 +106,9 @@ class vectorSet:
             self.revSortOrd.append(insertionPoint)
             if isNew:
                 if self.uniqRowSorted:
-                    rowIdxIP = bisect.insort(self.uniqRowIdx, self.sortOrd[insertionPoint])
-                    for i in range(rowIdxIP,len(self.uniqRowIdx)):
+                    rowIdxIP = bisect.bisect(self.uniqRowIdx, self.sortOrd[insertionPoint])
+                    self.uniqRowIdx.insert(rowIdxIP, self.sortOrd[insertionPoint]  )
+                    for i in range(rowIdxIP+1,len(self.uniqRowIdx)):
                         self.uniqRowIdxSet[self.uniqRowIdx[i]] += 1
                 else:
                     self.uniqRowIdx.append(insertionPoint)
