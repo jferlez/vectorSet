@@ -113,7 +113,7 @@ class vectorSet:
                     for i in range(rowIdxIP+1,len(self.uniqRowIdx)):
                         self.uniqRowIdxSet[self.uniqRowIdx[i]] += 1
                 else:
-                    self.uniqRowIdx.append(insertionPoint)
+                    self.uniqRowIdx.append(self.sortOrd[insertionPoint])
                     self.uniqRowIdx.sort()
                     self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
                     self.uniqRowSorted = True
