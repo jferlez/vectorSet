@@ -71,6 +71,7 @@ class vectorSet:
             self.deserialize()
         if not self.uniqRowSorted:
             self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+            self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
             self.uniqRowSorted = True
         return np.array( [(1/self.scale[i]) * self.rows[i] for i in self.uniqRowIdx] )
 
@@ -79,6 +80,7 @@ class vectorSet:
             self.deserialize()
         if not self.uniqRowSorted:
             self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+            self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
             self.uniqRowSorted = True
         return np.array( [(1/self.scale[self.sortOrd[i]]) * self.rows[self.sortOrd[i]] for i in self.uniqRowIdx] )
 
