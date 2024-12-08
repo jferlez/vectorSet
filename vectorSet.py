@@ -120,6 +120,77 @@ class vectorSet:
                 self.Nunique = len(self.uniqRowIdx)
         return isNew
 
+    def removeRow(self, vec=None, rowIndex=None, includeDup=False):
+        if self.serialized:
+            self.deserialize()
+        # includeDup=True will append the row to the full list of rows,
+        # even if it is a duplicate
+        if rowIndex is not None:
+            if rowIndex < 0 or rowIndex >= self.N:
+                raise ValueError(f'Specified row index must be < {self.N}')
+            vec = self.rows[rowIndex]/self.scale[rowIndex]
+            useRow = True
+        else:
+            useRow = False
+        if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
+            raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
+        origVec = vec.flatten().copy()
+        iVec = vec.flatten()
+        if self.dirIndep:
+            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.nan_to_num( np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+            iVec = scale * iVec
+        else:
+            scale = 1.0
+        _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+        if isNew:
+            return None
+        else:
+            toRemove = []
+            print((insertionPoint, self.sortOrd[insertionPoint-1]))
+            print(self.expandDuplicates(self.sortOrd[insertionPoint-1]))
+            assert insertionPoint > 0, f'Non-new hyperplanes should always have an insertionPoint > 0'
+            for idx in self.expandDuplicates(self.sortOrd[insertionPoint-1]):
+                print(self.rows[idx]/self.scale[idx])
+                if includeDup or vecEqualNb(self.rows[idx]/self.scale[idx],origVec,self.tol,self.rTol):
+                    if not useRow or idx == rowIndex:
+                        toRemove.append([idx,self.revSortOrd[idx],0])
+            removed = []
+            while len(toRemove) > 0:
+                rowIdx, sortIdx, cnt = toRemove.pop()
+                removed.append(rowIdx + cnt)
+                for i in range(len(toRemove)):
+                    if toRemove[i][0] > rowIdx:
+                        toRemove[i][0] -= 1
+                        toRemove[i][2] += 1
+                    if toRemove[i][1] > sortIdx:
+                        toRemove[i][1] -= 1
+                self.sortOrd.pop(sortIdx)
+                self.revSortOrd.pop(rowIdx)
+                self.rows.pop(rowIdx)
+                remUniqRow = False
+                for i in range(len(self.sortOrd)):
+                    if self.sortOrd[i] > rowIdx:
+                        self.sortOrd[i] -= 1
+                    if self.revSortOrd[i] > sortIdx:
+                        self.revSortOrd[i] -= 1
+                    if i in self.uniqRowIdxSet and i >= rowIdx:
+                        temp = self.uniqRowIdxSet[i]
+                        del self.uniqRowIdxSet[i]
+                        if i == rowIdx:
+                            remUniqRow = True
+                        else:
+                            self.uniqRowIdxSet[i-1] = temp if not remUniqRow else temp - 1
+                self.N = len(self.rows)
+                self.uniqRowIdx = sorted(list(self.uniqRowIdxSet.keys()))
+                if remUniqRow:
+                    _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+                    if not isNew:
+                        self.uniqRowIdx.append(min(self.expandDuplicates(self.sortOrd[insertionPoint-1])))
+                        self.uniqRowIdx.sort()
+                        self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
+                self.Nunique = len(self.uniqRowIdx)
+            return sorted(removed)
+
     def expandDuplicates(self,idxOrigOrder,ref=None,tailMask=0):
         if self.serialized:
             self.deserialize()
