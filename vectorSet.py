@@ -235,7 +235,7 @@ class vectorSet:
                 if self.uniqRowSorted:
                     i = bisect.bisect_left(self.uniqRowIdx, origIdx)
                     if i < len(self.uniqRowIdx) and self.uniqRowIdx[i] == origIdx:
-                        return isNew, origIdx, i
+                        return isNew, origIdx, [i]
                     else:
                         return isNew, origIdx, [i for i in range(self.uniqRowIdx) if self.uniqRowIdx[i] == origIdx]
             idx = insertionPoint + 1
@@ -244,10 +244,10 @@ class vectorSet:
                 if self.uniqRowSorted:
                     i = bisect.bisect_left(self.uniqRowIdx, origIdx)
                     if i < len(self.uniqRowIdx) and self.uniqRowIdx[i] == origIdx:
-                        return isNew, origIdx, i
+                        return isNew, origIdx, [i]
                     else:
                         return isNew, origIdx, [i for i in range(self.uniqRowIdx) if self.uniqRowIdx[i] == origIdx]
-            return isNew, None, -1
+            return isNew, None, [-1]
 
     def subtractSet(self, minusSet, subUniqueRows=True):
         if not isinstance(minusSet, vectorSet):
