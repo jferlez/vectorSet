@@ -120,15 +120,15 @@ class vectorSet:
                 self.Nunique = len(self.uniqRowIdx)
         return isNew
 
-    def removeRow(self, vec=None, rowIndex=None, includeDup=False):
+    def removeRow(self, idxOrigOrder=None, vec=None, includeDup=False):
         if self.serialized:
             self.deserialize()
         # includeDup=True will append the row to the full list of rows,
         # even if it is a duplicate
-        if rowIndex is not None:
-            if rowIndex < 0 or rowIndex >= self.N:
+        if vec is None and idxOrigOrder is not None:
+            if idxOrigOrder < 0 or idxOrigOrder >= self.N:
                 raise ValueError(f'Specified row index must be < {self.N}')
-            vec = self.rows[rowIndex]/self.scale[rowIndex]
+            vec = self.rows[idxOrigOrder]/self.scale[idxOrigOrder]
             useRow = True
         else:
             useRow = False
@@ -146,13 +146,13 @@ class vectorSet:
             return None
         else:
             toRemove = []
-            print((insertionPoint, self.sortOrd[insertionPoint-1]))
-            print(self.expandDuplicates(self.sortOrd[insertionPoint-1]))
+            # print((insertionPoint, self.sortOrd[insertionPoint-1]))
+            # print(self.expandDuplicates(self.sortOrd[insertionPoint-1]))
             assert insertionPoint > 0, f'Non-new hyperplanes should always have an insertionPoint > 0'
             for idx in self.expandDuplicates(self.sortOrd[insertionPoint-1]):
-                print(self.rows[idx]/self.scale[idx])
+                # print(self.rows[idx]/self.scale[idx])
                 if includeDup or vecEqualNb(self.rows[idx]/self.scale[idx],origVec,self.tol,self.rTol):
-                    if not useRow or idx == rowIndex:
+                    if not useRow or idx == idxOrigOrder:
                         toRemove.append([idx,self.revSortOrd[idx],0])
             removed = []
             while len(toRemove) > 0:
@@ -167,6 +167,7 @@ class vectorSet:
                 self.sortOrd.pop(sortIdx)
                 self.revSortOrd.pop(rowIdx)
                 self.rows.pop(rowIdx)
+                self.scale.pop(rowIdx)
                 remUniqRow = False
                 for i in range(len(self.sortOrd)):
                     if self.sortOrd[i] > rowIdx:
@@ -180,36 +181,45 @@ class vectorSet:
                             remUniqRow = True
                         else:
                             self.uniqRowIdxSet[i-1] = temp if not remUniqRow else temp - 1
-                self.N = len(self.rows)
-                self.uniqRowIdx = sorted(list(self.uniqRowIdxSet.keys()))
-                if remUniqRow:
-                    _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
-                    if not isNew:
-                        self.uniqRowIdx.append(min(self.expandDuplicates(self.sortOrd[insertionPoint-1])))
-                        self.uniqRowIdx.sort()
-                        self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
-                self.Nunique = len(self.uniqRowIdx)
+            self.N = len(self.rows)
+            self.uniqRowIdx = sorted(list(self.uniqRowIdxSet.keys()))
+            if remUniqRow:
+                _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
+                if not isNew:
+                    self.uniqRowIdx.append(min(self.expandDuplicates(self.sortOrd[insertionPoint-1])))
+                    self.uniqRowIdx.sort()
+                    self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
+            self.Nunique = len(self.uniqRowIdx)
             return sorted(removed)
 
-    def expandDuplicates(self,idxOrigOrder,ref=None,tailMask=0):
+    def expandDuplicates(self,idxOrigOrder=None,vec=None,tailMask=0):
         if self.serialized:
             self.deserialize()
-        if idxOrigOrder >= self.N or idxOrigOrder < 0:
-            raise ValueError(f'expandDuplicates: argument must be between {0} and {self.N}')
         before = []
         after = []
-        origIdx = self.revSortOrd[idxOrigOrder]
-        if ref is None:
+        if vec is None and idxOrigOrder is not None:
+            if idxOrigOrder >= self.N or idxOrigOrder < 0:
+                raise ValueError(f'expandDuplicates: argument must be between {0} and {self.N}')
+            origIdx = self.revSortOrd[idxOrigOrder]
             ref = self.rows[idxOrigOrder]
+        elif vec is not None and idxOrigOrder is None:
+            assert isinstance(vec,np.ndarray) and vec.flatten().size == self.d
+            ref = vec.copy().flatten()
+            if self.dirIndep:
+                scale = (1.0 if ref[-1] >= 0 else -1.0) / np.nan_to_num( np.linalg.norm(ref[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+                ref = scale * ref
+            _, origIdx, isNew = findInsertionPoint(self.rows, ref, self.sortOrd, self.tol, self.rTol)
+            origIdx -= 1
+            if isNew:
+                return []
         else:
-            assert isinstance(ref,np.ndarray) and ref.size == self.d
-            ref = ref.copy().flatten()
+            raise ValueError('Must supply either an index or a vector (but not both)')
         idx = origIdx
         while idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],ref[tailMask:self.d],self.tol,self.rTol):
             before.append(self.sortOrd[idx])
             idx -= 1
         idx = origIdx + 1
-        while idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],self.rows[idxOrigOrder][tailMask:self.d],self.tol,self.rTol):
+        while idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],ref[tailMask:self.d],self.tol,self.rTol):
             after.append(self.sortOrd[idx])
             idx += 1
         return sorted(before + after)
