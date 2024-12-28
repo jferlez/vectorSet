@@ -143,7 +143,7 @@ class vectorSet:
             scale = 1.0
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         if isNew:
-            return None
+            return [], []
         else:
             toRemove = []
             # print((insertionPoint, self.sortOrd[insertionPoint-1]))
@@ -183,14 +183,16 @@ class vectorSet:
                             self.uniqRowIdxSet[i-1] = temp if not remUniqRow else temp - 1
             self.N = len(self.rows)
             self.uniqRowIdx = sorted(list(self.uniqRowIdxSet.keys()))
+            added = []
             if remUniqRow:
                 _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
                 if not isNew:
                     self.uniqRowIdx.append(min(self.expandDuplicates(self.sortOrd[insertionPoint-1])))
+                    added.append(self.uniqRowIdx[-1])
                     self.uniqRowIdx.sort()
                     self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
             self.Nunique = len(self.uniqRowIdx)
-            return sorted(removed)
+            return sorted(removed), added
 
     def expandDuplicates(self,idxOrigOrder=None,vec=None,tailMask=0):
         if self.serialized:
