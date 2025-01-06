@@ -123,15 +123,11 @@ class vectorSet:
     def removeRow(self, idxOrigOrder=None, vec=None, includeDup=False):
         if self.serialized:
             self.deserialize()
-        # includeDup=True will append the row to the full list of rows,
-        # even if it is a duplicate
         if vec is None and idxOrigOrder is not None:
             if idxOrigOrder < 0 or idxOrigOrder >= self.N:
                 raise ValueError(f'Specified row index must be < {self.N}')
             vec = self.rows[idxOrigOrder]/self.scale[idxOrigOrder]
-            useRow = True
-        else:
-            useRow = False
+            print(f'vec = {vec} scale = {self.scale[idxOrigOrder]}')
         if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
             raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
         origVec = vec.flatten().copy()
@@ -141,6 +137,7 @@ class vectorSet:
             iVec = scale * iVec
         else:
             scale = 1.0
+        print(f'iVec = {iVec}')
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         if isNew:
             return [], []
@@ -152,8 +149,7 @@ class vectorSet:
             for idx in self.expandDuplicates(self.sortOrd[insertionPoint-1]):
                 # print(self.rows[idx]/self.scale[idx])
                 if includeDup or vecEqualNb(self.rows[idx]/self.scale[idx],origVec,self.tol,self.rTol):
-                    if not useRow or idx == idxOrigOrder:
-                        toRemove.append([idx,self.revSortOrd[idx],0])
+                    toRemove.append([idx,self.revSortOrd[idx],0])
             removed = []
             while len(toRemove) > 0:
                 rowIdx, sortIdx, cnt = toRemove.pop()
