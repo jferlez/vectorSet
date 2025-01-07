@@ -125,7 +125,7 @@ class vectorSet:
             self.deserialize()
         if vec is None and idxOrigOrder is not None:
             if idxOrigOrder < 0 or idxOrigOrder >= self.N:
-                raise ValueError(f'Specified row index must be < {self.N}')
+                raise ValueError(f'Specified row index {idxOrigOrder} must be < {self.N}')
             vec = self.rows[idxOrigOrder]/self.scale[idxOrigOrder]
             print(f'vec = {vec} scale = {self.scale[idxOrigOrder]}')
         if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
@@ -148,7 +148,8 @@ class vectorSet:
             assert insertionPoint > 0, f'Non-new hyperplanes should always have an insertionPoint > 0'
             for idx in self.expandDuplicates(self.sortOrd[insertionPoint-1]):
                 # print(self.rows[idx]/self.scale[idx])
-                if includeDup or vecEqualNb(self.rows[idx]/self.scale[idx],origVec,self.tol,self.rTol):
+                if includeDup or (idxOrigOrder is not None and idx == idxOrigOrder) \
+                        or (idxOrigOrder is None and vecEqualNb(self.rows[idx]/self.scale[idx],origVec,self.tol,self.rTol)):
                     toRemove.append([idx,self.revSortOrd[idx],0])
             removed = []
             while len(toRemove) > 0:
