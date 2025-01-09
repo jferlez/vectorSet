@@ -127,7 +127,7 @@ class vectorSet:
             if idxOrigOrder < 0 or idxOrigOrder >= self.N:
                 raise ValueError(f'Specified row index {idxOrigOrder} must be < {self.N}')
             vec = self.rows[idxOrigOrder]/self.scale[idxOrigOrder]
-            print(f'vec = {vec} scale = {self.scale[idxOrigOrder]}')
+            # print(f'vec = {vec} scale = {self.scale[idxOrigOrder]}')
         if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
             raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
         origVec = vec.flatten().copy()
@@ -137,7 +137,7 @@ class vectorSet:
             iVec = scale * iVec
         else:
             scale = 1.0
-        print(f'iVec = {iVec}')
+        # print(f'iVec = {iVec}')
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         if isNew:
             return [], []
