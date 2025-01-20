@@ -331,7 +331,7 @@ class vectorSet:
                 break
             cnt += 1
         if foundMatch:
-            parallelHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],ref=iVec,tailMask=self.tailMask)) - identicalHyperplanes
+            parallelHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],vec=iVec,tailMask=self.tailMask)) - identicalHyperplanes
         else:
             parallelHyperplanes = set()
         if not isNew or len(parallelHyperplanes) > 0:
