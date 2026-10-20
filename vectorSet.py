@@ -494,7 +494,7 @@ def findInsertionPoint(mat, row, revSortOrd, tol, rTol):
     loc = 0
     relLoc = (0,0)
     if len(mat) == 0:
-        return 0, 0, False
+        return 0, 0, True
     d = mat[0].shape[0]
     col = d-1
     while len(temp) > 0 and col >= 0:
