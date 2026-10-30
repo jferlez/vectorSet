@@ -161,6 +161,14 @@ class vectorSet:
                         toRemove[i][2] += 1
                     if toRemove[i][1] > sortIdx:
                         toRemove[i][1] -= 1
+                for i in range(len(self.sortOrd)):
+                    if i in self.uniqRowIdxSet and i >= rowIdx:
+                        temp = self.uniqRowIdxSet[i]
+                        del self.uniqRowIdxSet[i]
+                        if i == rowIdx:
+                            remUniqRow = True
+                        else:
+                            self.uniqRowIdxSet[i-1] = temp if not remUniqRow else temp - 1
                 self.sortOrd.pop(sortIdx)
                 self.revSortOrd.pop(rowIdx)
                 self.rows.pop(rowIdx)
@@ -171,13 +179,6 @@ class vectorSet:
                         self.sortOrd[i] -= 1
                     if self.revSortOrd[i] > sortIdx:
                         self.revSortOrd[i] -= 1
-                    if i in self.uniqRowIdxSet and i >= rowIdx:
-                        temp = self.uniqRowIdxSet[i]
-                        del self.uniqRowIdxSet[i]
-                        if i == rowIdx:
-                            remUniqRow = True
-                        else:
-                            self.uniqRowIdxSet[i-1] = temp if not remUniqRow else temp - 1
             self.N = len(self.rows)
             self.uniqRowIdx = sorted(list(self.uniqRowIdxSet.keys()))
             added = []
