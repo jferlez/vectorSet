@@ -110,6 +110,7 @@ class vectorSet:
                 if self.uniqRowSorted:
                     rowIdxIP = bisect.bisect(self.uniqRowIdx, self.sortOrd[insertionPoint])
                     self.uniqRowIdx.insert(rowIdxIP, self.sortOrd[insertionPoint]  )
+                    self.uniqRowIdxSet[self.sortOrd[insertionPoint]] = rowIdxIP
                     for i in range(rowIdxIP+1,len(self.uniqRowIdx)):
                         self.uniqRowIdxSet[self.uniqRowIdx[i]] += 1
                 else:
