@@ -71,7 +71,8 @@ def runSeed(seed, nOps=40, verbose=False):
     d = int(rng.integers(3, 5))
     def randRow():
         r = rng.integers(-2, 3, size=d).astype(np.float64)
-        if r[-1] == 0: r[-1] = 1.0          # (rows with a zero last entry are a separate, known limitation)
+        if rng.random() < 0.3: r[-1] = 0.0  # zero last entry: the sign has to come from an earlier entry
+        if not np.any(r[1:]): r[1] = 1.0
         r[0] = float(rng.integers(-1, 2))
         return r * float(rng.choice([-2.0, -1.0, 0.5, 1.0, 3.0]))
     rows = [randRow() for _ in range(int(rng.integers(1, 8)))]

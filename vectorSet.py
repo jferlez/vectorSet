@@ -8,9 +8,18 @@ from numba.core import types
 from numba.typed import Dict
 from numba.np.unsafe.ndarray import to_fixed_tuple
 from copy import copy, deepcopy
+import warnings
 
 class vectorSet:
+    # Version of the stored representation (the attributes of an instance). Instances record the version they
+    # were created with in self.formatVersion; an instance without that attribute is a "legacy" object that was
+    # pickled by an older version of this class, and is upgraded when it is unpickled (see __setstate__).
+    #    0 (legacy): the sign of a direction-independent row was taken from its last entry alone
+    #    1:          the sign is taken from the last entry that is non-zero (see dirScales)
+    FORMAT_VERSION = 1
+
     def __init__(self, rows, tol=1e-9, rTol=1e-9, dirIndep=True, tailMask=1):
+        self.formatVersion = vectorSet.FORMAT_VERSION
         self.tol = tol
         self.rTol = rTol
         self.dirIndep = dirIndep
@@ -22,7 +31,7 @@ class vectorSet:
             raise ValueError(f'tailMask argument must be an integer between 0 and {self.d}')
         self.tailMask = tailMask
         if self.dirIndep:
-            self.scale = ( np.sign(np.sign(rows[:,-1]) + 0.1) * np.nan_to_num(1/np.linalg.norm(rows[:,self.tailMask:self.d],axis=1), nan=1.0, posinf=1.0)  ).tolist()
+            self.scale = self.dirScales(rows).tolist()
         else:
             self.scale = [1.0 for r in range(self.N)]
         self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
@@ -38,6 +47,77 @@ class vectorSet:
         self.Nunique = len(self.uniqRowIdx)
         self.uniqRowSorted = True
         self.serialized = False
+
+    # The scale factors that map each row of a 2-d array to its direction-independent ("dirIndep") representative,
+    # i.e. to the same stored row for v and for any non-zero multiple of v (in particular -v):
+    #   magnitude: 1 / (norm of the entries from tailMask on), or 1 if that norm is zero;
+    #   sign:      such that the last entry of the scaled row that is non-zero (larger than tol in absolute
+    #              value) is positive. NB: the sign cannot be taken from the last entry alone: if that entry is
+    #              zero, it is zero for both v and -v, and the two would be stored as different rows.
+    def dirScales(self, rows):
+        rows = np.asarray(rows, dtype=np.float64).reshape(-1, self.d)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            mag = np.nan_to_num(1/np.linalg.norm(rows[:,self.tailMask:self.d],axis=1), nan=1.0, posinf=1.0)
+        scaled = mag.reshape(-1,1) * rows
+        nonZero = np.abs(scaled) > self.tol
+        # Column of the last non-zero entry of each row (rows without one keep a positive sign)
+        lastNonZero = self.d - 1 - np.argmax(nonZero[:,::-1], axis=1)
+        sgn = np.where(scaled[np.arange(rows.shape[0]), lastNonZero] < 0, -1.0, 1.0)
+        sgn[np.logical_not(np.any(nonZero, axis=1))] = 1.0
+        return sgn * mag
+
+    def dirScale(self, vec):
+        return float(self.dirScales(vec.reshape(1,-1))[0])
+
+    # Called by pickle (and copy/deepcopy) instead of updating __dict__ directly. Pickle stores only the
+    # attributes of an instance, never the code of its class, so an object pickled by an older version of this
+    # class comes back with the *current* methods and the *old* data; that data is upgraded here.
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if state.get('formatVersion', 0) < vectorSet.FORMAT_VERSION:
+            self.upgradeFromLegacy()
+
+    # Brings the data of an object created by an older version of this class up to FORMAT_VERSION (in place).
+    # Returns the list of row indices whose stored sign changed.
+    def upgradeFromLegacy(self):
+        version = self.__dict__.get('formatVersion', 0)
+        changed = []
+        if version < 1 and self.dirIndep and self.N > 0:
+            serialized = self.serialized
+            rows = list(self.rowsPy) if serialized else list(self.rows)
+            # The stored rows are already scaled, so only the sign of the new scale factor matters
+            sgn = self.dirScales(np.array(rows))
+            changed = [i for i in range(self.N) if sgn[i] < 0]
+            if len(changed) > 0:
+                oldUniq = list(self.uniqRowIdx)
+                for i in changed:
+                    rows[i] = -rows[i]
+                    self.scale[i] = -self.scale[i]
+                # The changed rows have a new place in the sort order
+                typedRows = nb.typed.List(rows)
+                sortOrd = np.arange(self.N)
+                quickSortRowwise(typedRows, sortOrd, self.tol, self.rTol)
+                self.revSortOrd = getReverseOrder(sortOrd).tolist()
+                if serialized:
+                    self.rowsPy, self.sortOrdPy = rows, [int(i) for i in sortOrd]
+                else:
+                    self.rows, self.sortOrd = typedRows, nb.typed.List(sortOrd)
+                # The set of unique rows is deliberately left as it is: users of this object (e.g. the
+                # non-redundant hyperplanes of a flipConstraints object) refer to those rows. If two of them
+                # are now recognized as duplicates of each other, all that can be done here is to say so.
+                uniq = set(oldUniq)
+                idx = 0
+                while idx < self.N:
+                    grp = [int(sortOrd[idx])]
+                    while idx + 1 < self.N and vecEqualNb(rows[sortOrd[idx]], rows[sortOrd[idx+1]], self.tol, self.rTol):
+                        idx += 1
+                        grp.append(int(sortOrd[idx]))
+                    idx += 1
+                    if len(uniq & set(grp)) > 1:
+                        warnings.warn(f'vectorSet (legacy object): rows {sorted(uniq & set(grp))} are duplicates of each other, ' \
+                                        + 'but were stored as distinct unique rows by an older version of vectorSet')
+        self.formatVersion = vectorSet.FORMAT_VERSION
+        return changed
 
     def serialize(self):
         if not self.serialized:
@@ -93,7 +173,7 @@ class vectorSet:
             raise ValueError(f'Can only insert floating point numpy vectors of length {self.d}')
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.nan_to_num( np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+            scale = self.dirScale(iVec)
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -134,7 +214,7 @@ class vectorSet:
         origVec = vec.flatten().copy()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) / np.nan_to_num( np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+            scale = self.dirScale(iVec)
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -189,8 +269,10 @@ class vectorSet:
             added = []
             if remAnyUniqRow:
                 _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
-                if not isNew:
-                    self.uniqRowIdx.append(min(self.expandDuplicates(self.sortOrd[insertionPoint-1])))
+                remaining = [] if isNew else self.expandDuplicates(self.sortOrd[insertionPoint-1])
+                # (the second condition can only fail for an upgraded legacy object; see upgradeFromLegacy)
+                if len(remaining) > 0 and len(self.uniqRowIdxSet.keys() & set(remaining)) == 0:
+                    self.uniqRowIdx.append(min(remaining))
                     added.append(self.uniqRowIdx[-1])
                     self.uniqRowIdx.sort()
                     self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
@@ -211,7 +293,7 @@ class vectorSet:
             assert isinstance(vec,np.ndarray) and vec.flatten().size == self.d
             ref = vec.copy().flatten()
             if self.dirIndep:
-                scale = (1.0 if ref[-1] >= 0 else -1.0) / np.nan_to_num( np.linalg.norm(ref[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+                scale = self.dirScale(ref)
                 ref = scale * ref
             _, origIdx, isNew = findInsertionPoint(self.rows, ref, self.sortOrd, self.tol, self.rTol)
             origIdx -= 1
@@ -236,7 +318,7 @@ class vectorSet:
             raise ValueError(f'Can only search for floating point numpy vectors of length {self.d}')
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) * np.nan_to_num( 1/np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+            scale = self.dirScale(iVec)
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -282,7 +364,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) * np.nan_to_num( 1/np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+            scale = self.dirScale(iVec)
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -296,7 +378,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) * np.nan_to_num( 1/np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+            scale = self.dirScale(iVec)
             iVec = scale * iVec
         else:
             scale = 1.0
@@ -310,7 +392,7 @@ class vectorSet:
             self.deserialize()
         iVec = vec.flatten()
         if self.dirIndep:
-            scale = (1.0 if iVec[-1] >= 0 else -1.0) * np.nan_to_num( 1/np.linalg.norm(iVec[self.tailMask:self.d]), nan=1.0, posinf=1.0 )
+            scale = self.dirScale(iVec)
             iVec = scale * iVec
         else:
             scale = 1.0
