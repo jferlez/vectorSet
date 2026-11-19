@@ -153,9 +153,13 @@ class vectorSet:
                         or (idxOrigOrder is None and vecEqualNb(self.rows[idx]/self.scale[idx],origVec,self.tol,self.rTol)):
                     toRemove.append([idx,self.revSortOrd[idx],0])
             removed = []
+            # remUniqRow: the row removed in the current iteration is a unique row; remAnyUniqRow: any of the
+            # removed rows was a unique row (in which case a remaining duplicate has to take its place below)
+            remAnyUniqRow = False
             while len(toRemove) > 0:
                 rowIdx, sortIdx, cnt = toRemove.pop()
                 removed.append(rowIdx + cnt)
+                remUniqRow = False
                 for i in range(len(toRemove)):
                     if toRemove[i][0] > rowIdx:
                         toRemove[i][0] -= 1
@@ -168,13 +172,13 @@ class vectorSet:
                         del self.uniqRowIdxSet[i]
                         if i == rowIdx:
                             remUniqRow = True
+                            remAnyUniqRow = True
                         else:
                             self.uniqRowIdxSet[i-1] = temp if not remUniqRow else temp - 1
                 self.sortOrd.pop(sortIdx)
                 self.revSortOrd.pop(rowIdx)
                 self.rows.pop(rowIdx)
                 self.scale.pop(rowIdx)
-                remUniqRow = False
                 for i in range(len(self.sortOrd)):
                     if self.sortOrd[i] > rowIdx:
                         self.sortOrd[i] -= 1
@@ -183,7 +187,7 @@ class vectorSet:
             self.N = len(self.rows)
             self.uniqRowIdx = sorted(list(self.uniqRowIdxSet.keys()))
             added = []
-            if remUniqRow:
+            if remAnyUniqRow:
                 _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
                 if not isNew:
                     self.uniqRowIdx.append(min(self.expandDuplicates(self.sortOrd[insertionPoint-1])))
