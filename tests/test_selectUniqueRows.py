@@ -68,7 +68,7 @@ nCases = 0; nDiff = 0; nDup = 0
 for case in range(1500):
     d = int(rng.integers(1, 9)); n = int(rng.choice([1, 2, 3, 5, 8, 20, 60, 300], p=[.1, .1, .1, .15, .2, .2, .1, .05]))
     M = randomRows(n, d)
-    mat = nb.typed.List([M[i].copy() for i in range(n)])
+    mat = np.ascontiguousarray(M.copy())
     for order in ('sorted', 'random'):
         sortOrd = np.arange(n)
         if order == 'sorted': quickSortRowwise(mat, sortOrd, tol, rTol)
@@ -83,7 +83,7 @@ pairs = [v + np.array([0.9e-9, 0, 0]), v + np.array([1.1e-9, 0, 0]), v * (1 + 0.
 nDiff = 0
 for w in pairs:
     for a, b in ((v, w), (w, v)):
-        mat = nb.typed.List([a.copy(), b.copy()]); so = np.arange(2)
+        mat = np.ascontiguousarray(np.vstack((a, b))); so = np.arange(2)
         nDiff += (not sameResult(referenceScan(mat, so, tol, rTol), selectUniqueRows(mat, so, tol, rTol)))
 check('pairs on either side of the absolute and the relative tolerance, in both orders: identical', nDiff == 0, f'{nDiff} differ')
 
@@ -92,13 +92,13 @@ special = [np.array([np.nan, 1.0]), np.array([np.nan, 1.0]), np.array([np.inf, 1
 nDiff = 0
 with np.errstate(invalid='ignore'):
     for trial in range(50):
-        idx = rng.permutation(len(special)); mat = nb.typed.List([special[i].copy() for i in idx]); so = np.arange(len(special))
+        idx = rng.permutation(len(special)); mat = np.ascontiguousarray(np.vstack([special[i] for i in idx])); so = np.arange(len(special))
         ref = referenceScan(mat, so, tol, rTol); new = selectUniqueRows(mat, so, tol, rTol)
         nDiff += (not sameResult(ref, new))
 check('rows with NaN and infinite entries: identical (a NaN equals nothing)', nDiff == 0, f'{nDiff} differ')
 
 # ---- 4. no rows
-res = selectUniqueRows(nb.typed.List([np.zeros(3)]), np.arange(0), tol, rTol)
+res = selectUniqueRows(np.zeros((1,3)), np.arange(0), tol, rTol)
 check('no rows: empty mask and no positions', res[0].shape == (0,) and len(res[1]) == 0, res)
 
 # ---- 5. whole vectorSet objects, with the compiled and with the reference scan

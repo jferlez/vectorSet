@@ -16,7 +16,11 @@ class vectorSet:
     # pickled by an older version of this class, and is upgraded when it is unpickled (see __setstate__).
     #    0 (legacy): the sign of a direction-independent row was taken from its last entry alone
     #    1:          the sign is taken from the last entry that is non-zero (see dirScales)
-    FORMAT_VERSION = 1
+    #    2:          self.rows is a C-contiguous (N, d) float64 array and self.sortOrd an int64 array (before:
+    #                Numba typed Lists, with Python-list copies rowsPy/sortOrdPy while "serialized"). Arrays
+    #                pickle as they are, so serialize()/deserialize() have nothing left to do. The arrays are
+    #                never changed in place after the constructor: a change replaces them.
+    FORMAT_VERSION = 2
 
     def __init__(self, rows, tol=1e-9, rTol=1e-9, dirIndep=True, tailMask=1):
         self.formatVersion = vectorSet.FORMAT_VERSION
@@ -31,18 +35,18 @@ class vectorSet:
             raise ValueError(f'tailMask argument must be an integer between 0 and {self.d}')
         self.tailMask = tailMask
         if self.dirIndep:
-            self.scale = self.dirScales(rows).tolist()
+            scale = self.dirScales(rows)
         else:
-            self.scale = [1.0 for r in range(self.N)]
-        self.rows = nb.typed.List( [ self.scale[i] * rows[i].copy() for i in range(self.N) ] )
+            scale = np.ones(self.N,dtype=np.float64)
+        self.scale = scale.tolist()
+        self.rows = np.ascontiguousarray(scale.reshape(-1,1) * rows)
         self.rowsPy = None
-        self.sortOrd = np.arange(self.N)
+        self.sortOrd = np.arange(self.N,dtype=np.int64)
         quickSortRowwise(self.rows, self.sortOrd, self.tol, self.rTol)
         self.revSortOrd = getReverseOrder(self.sortOrd).tolist()
         _ , self.uniqRowIdx = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
-        self.sortOrd = nb.typed.List( self.sortOrd )
         self.sortOrdPy = None
-        self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+        self.uniqRowIdx = sorted(self.sortOrd[np.array(self.uniqRowIdx,dtype=np.int64)].tolist())
         self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
         self.Nunique = len(self.uniqRowIdx)
         self.uniqRowSorted = True
@@ -77,16 +81,28 @@ class vectorSet:
         if state.get('formatVersion', 0) < vectorSet.FORMAT_VERSION:
             self.upgradeFromLegacy()
 
+    # Formats 0 and 1 kept the rows and the sort order as typed Lists (or as Python lists while serialized)
+    def rowsToArrays(self):
+        rows = self.rowsPy if self.__dict__.get('serialized', False) else self.rows
+        sortOrd = self.sortOrdPy if self.__dict__.get('serialized', False) else self.sortOrd
+        if not isinstance(rows, np.ndarray):
+            rows = np.array([np.asarray(r,dtype=np.float64) for r in rows],dtype=np.float64).reshape(-1, self.d)
+        if not isinstance(sortOrd, np.ndarray):
+            sortOrd = np.array([int(i) for i in sortOrd],dtype=np.int64)
+        self.rows, self.sortOrd = np.ascontiguousarray(rows,dtype=np.float64), np.ascontiguousarray(sortOrd,dtype=np.int64)
+        self.rowsPy, self.sortOrdPy, self.serialized = None, None, False
+
     # Brings the data of an object created by an older version of this class up to FORMAT_VERSION (in place).
     # Returns the list of row indices whose stored sign changed.
     def upgradeFromLegacy(self):
         version = self.__dict__.get('formatVersion', 0)
         changed = []
+        if version < 2:
+            self.rowsToArrays()
         if version < 1 and self.dirIndep and self.N > 0:
-            serialized = self.serialized
-            rows = list(self.rowsPy) if serialized else list(self.rows)
+            rows = self.rows.copy()
             # The stored rows are already scaled, so only the sign of the new scale factor matters
-            sgn = self.dirScales(np.array(rows))
+            sgn = self.dirScales(rows)
             changed = [i for i in range(self.N) if sgn[i] < 0]
             if len(changed) > 0:
                 oldUniq = list(self.uniqRowIdx)
@@ -94,14 +110,10 @@ class vectorSet:
                     rows[i] = -rows[i]
                     self.scale[i] = -self.scale[i]
                 # The changed rows have a new place in the sort order
-                typedRows = nb.typed.List(rows)
-                sortOrd = np.arange(self.N)
-                quickSortRowwise(typedRows, sortOrd, self.tol, self.rTol)
+                sortOrd = np.arange(self.N,dtype=np.int64)
+                quickSortRowwise(rows, sortOrd, self.tol, self.rTol)
                 self.revSortOrd = getReverseOrder(sortOrd).tolist()
-                if serialized:
-                    self.rowsPy, self.sortOrdPy = rows, [int(i) for i in sortOrd]
-                else:
-                    self.rows, self.sortOrd = typedRows, nb.typed.List(sortOrd)
+                self.rows, self.sortOrd = rows, sortOrd
                 # The set of unique rows is deliberately left as it is: users of this object (e.g. the
                 # non-redundant hyperplanes of a flipConstraints object) refer to those rows. If two of them
                 # are now recognized as duplicates of each other, all that can be done here is to say so.
@@ -119,50 +131,43 @@ class vectorSet:
         self.formatVersion = vectorSet.FORMAT_VERSION
         return changed
 
+    # Kept for the callers: since format 2 there is nothing to convert (self.serialized stays False)
     def serialize(self):
-        if not self.serialized:
-            self.rowsPy = list(self.rows)
-            self.rows = None
-            self.sortOrdPy = list(self.sortOrd)
-            self.sortOrd = None
-            self.serialized = True
         return self
     def deserialize(self):
-        if self.serialized:
-            self.rows = nb.typed.List(self.rowsPy)
-            self.rowsPy = None
-            self.sortOrd = nb.typed.List(self.sortOrdPy)
-            self.sortOrdPy = None
-            self.serialized = False
         return self
 
+    # The rows with the given indices as they were supplied, i.e. with the scaling undone. (An empty selection
+    # gives an array of shape (0,), as before.)
+    def unscaledRows(self, idx):
+        if len(idx) == 0:
+            return np.array([])
+        idx = np.asarray(idx,dtype=np.int64)
+        return (1/np.array(self.scale,dtype=np.float64)[idx]).reshape(-1,1) * self.rows[idx]
+
     def getRows(self):
-        if self.serialized:
-            self.deserialize()
-        return np.array( [(1/self.scale[i])*self.rows[i] for i in range(self.N)] )
+        return self.unscaledRows(np.arange(self.N))
 
     def getRowsSorted(self):
-        if self.serialized:
-            self.deserialize()
-        return np.array( [(1/self.scale[self.sortOrd[i]])*self.rows[self.sortOrd[i]] for i in range(self.N)] )
+        return self.unscaledRows(self.sortOrd)
 
     def getUniqueRows(self):
         if self.serialized:
             self.deserialize()
         if not self.uniqRowSorted:
-            self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+            self.uniqRowIdx = sorted([int(self.sortOrd[i]) for i in self.uniqRowIdx])
             self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
             self.uniqRowSorted = True
-        return np.array( [(1/self.scale[i]) * self.rows[i] for i in self.uniqRowIdx] )
+        return self.unscaledRows(self.uniqRowIdx)
 
     def getUniqueRowsSorted(self):
         if self.serialized:
             self.deserialize()
         if not self.uniqRowSorted:
-            self.uniqRowIdx = sorted([self.sortOrd[i] for i in self.uniqRowIdx])
+            self.uniqRowIdx = sorted([int(self.sortOrd[i]) for i in self.uniqRowIdx])
             self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
             self.uniqRowSorted = True
-        return np.array( [(1/self.scale[self.sortOrd[i]]) * self.rows[self.sortOrd[i]] for i in self.uniqRowIdx] )
+        return self.unscaledRows(self.sortOrd[np.array(self.uniqRowIdx,dtype=np.int64)])
 
     def insertRow(self, vec, includeDup=True):
         if self.serialized:
@@ -180,21 +185,22 @@ class vectorSet:
         _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
         if isNew or includeDup:
             self.N += 1
-            self.rows.append(iVec)
+            self.rows = np.ascontiguousarray(np.vstack((self.rows, iVec.reshape(1,-1))))
             self.scale.append(scale)
-            self.sortOrd.insert(insertionPoint, self.N - 1)
-            for idx in range(insertionPoint+1, self.N):
-                self.revSortOrd[self.sortOrd[idx]] += 1
+            self.sortOrd = np.ascontiguousarray(np.insert(self.sortOrd, insertionPoint, self.N - 1))
+            for rowIdx in self.sortOrd[(insertionPoint+1):].tolist():
+                self.revSortOrd[rowIdx] += 1
             self.revSortOrd.append(insertionPoint)
             if isNew:
+                newRowIdx = int(self.sortOrd[insertionPoint])
                 if self.uniqRowSorted:
-                    rowIdxIP = bisect.bisect(self.uniqRowIdx, self.sortOrd[insertionPoint])
-                    self.uniqRowIdx.insert(rowIdxIP, self.sortOrd[insertionPoint]  )
-                    self.uniqRowIdxSet[self.sortOrd[insertionPoint]] = rowIdxIP
+                    rowIdxIP = bisect.bisect(self.uniqRowIdx, newRowIdx)
+                    self.uniqRowIdx.insert(rowIdxIP, newRowIdx)
+                    self.uniqRowIdxSet[newRowIdx] = rowIdxIP
                     for i in range(rowIdxIP+1,len(self.uniqRowIdx)):
                         self.uniqRowIdxSet[self.uniqRowIdx[i]] += 1
                 else:
-                    self.uniqRowIdx.append(self.sortOrd[insertionPoint])
+                    self.uniqRowIdx.append(newRowIdx)
                     self.uniqRowIdx.sort()
                     self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
                     self.uniqRowSorted = True
@@ -227,7 +233,7 @@ class vectorSet:
             # print((insertionPoint, self.sortOrd[insertionPoint-1]))
             # print(self.expandDuplicates(self.sortOrd[insertionPoint-1]))
             assert insertionPoint > 0, f'Non-new hyperplanes should always have an insertionPoint > 0'
-            for idx in self.expandDuplicates(self.sortOrd[insertionPoint-1]):
+            for idx in self.expandDuplicates(int(self.sortOrd[insertionPoint-1])):
                 # print(self.rows[idx]/self.scale[idx])
                 if includeDup or (idxOrigOrder is not None and idx == idxOrigOrder) \
                         or (idxOrigOrder is None and vecEqualNb(self.rows[idx]/self.scale[idx],origVec,self.tol,self.rTol)):
@@ -255,21 +261,20 @@ class vectorSet:
                             remAnyUniqRow = True
                         else:
                             self.uniqRowIdxSet[i-1] = temp if not remUniqRow else temp - 1
-                self.sortOrd.pop(sortIdx)
+                sortOrd = np.delete(self.sortOrd, sortIdx)
+                self.sortOrd = np.ascontiguousarray(np.where(sortOrd > rowIdx, sortOrd - 1, sortOrd))
                 self.revSortOrd.pop(rowIdx)
-                self.rows.pop(rowIdx)
+                self.rows = np.ascontiguousarray(np.delete(self.rows, rowIdx, axis=0))
                 self.scale.pop(rowIdx)
                 for i in range(len(self.sortOrd)):
-                    if self.sortOrd[i] > rowIdx:
-                        self.sortOrd[i] -= 1
                     if self.revSortOrd[i] > sortIdx:
                         self.revSortOrd[i] -= 1
-            self.N = len(self.rows)
+            self.N = self.rows.shape[0]
             self.uniqRowIdx = sorted(list(self.uniqRowIdxSet.keys()))
             added = []
             if remAnyUniqRow:
                 _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
-                remaining = [] if isNew else self.expandDuplicates(self.sortOrd[insertionPoint-1])
+                remaining = [] if isNew else self.expandDuplicates(int(self.sortOrd[insertionPoint-1]))
                 # (the second condition can only fail for an upgraded legacy object; see upgradeFromLegacy)
                 if len(remaining) > 0 and len(self.uniqRowIdxSet.keys() & set(remaining)) == 0:
                     self.uniqRowIdx.append(min(remaining))
@@ -303,11 +308,11 @@ class vectorSet:
             raise ValueError('Must supply either an index or a vector (but not both)')
         idx = origIdx
         while idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],ref[tailMask:self.d],self.tol,self.rTol):
-            before.append(self.sortOrd[idx])
+            before.append(int(self.sortOrd[idx]))
             idx -= 1
         idx = origIdx + 1
         while idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],ref[tailMask:self.d],self.tol,self.rTol):
-            after.append(self.sortOrd[idx])
+            after.append(int(self.sortOrd[idx]))
             idx += 1
         return sorted(before + after)
 
@@ -328,7 +333,7 @@ class vectorSet:
         else:
             idx = insertionPoint - 1
             if idx >= 0 and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],iVec[tailMask:self.d],self.tol,self.rTol):
-                origIdx = list( self.uniqRowIdxSet.keys() & set(self.expandDuplicates(self.sortOrd[idx],tailMask=tailMask)) )[0]
+                origIdx = list( self.uniqRowIdxSet.keys() & set(self.expandDuplicates(int(self.sortOrd[idx]),tailMask=tailMask)) )[0]
                 if self.uniqRowSorted:
                     i = bisect.bisect_left(self.uniqRowIdx, origIdx)
                     if i < len(self.uniqRowIdx) and self.uniqRowIdx[i] == origIdx:
@@ -337,7 +342,7 @@ class vectorSet:
                         return isNew, origIdx, [i for i in range(self.uniqRowIdx) if self.uniqRowIdx[i] == origIdx]
             idx = insertionPoint + 1
             if idx < self.N and vecEqualNb(self.rows[self.sortOrd[idx]][tailMask:self.d],iVec[tailMask:self.d],self.tol,self.rTol):
-                origIdx = list( self.uniqRowIdxSet.keys() & set(self.expandDuplicates(self.sortOrd[idx],tailMask=tailMask)) )[0]
+                origIdx = list( self.uniqRowIdxSet.keys() & set(self.expandDuplicates(int(self.sortOrd[idx]),tailMask=tailMask)) )[0]
                 if self.uniqRowSorted:
                     i = bisect.bisect_left(self.uniqRowIdx, origIdx)
                     if i < len(self.uniqRowIdx) and self.uniqRowIdx[i] == origIdx:
@@ -407,7 +412,7 @@ class vectorSet:
             cnt += 1
         # Can obviously be optimized
         if not isNew and foundMatch:
-            identicalHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],tailMask=0))
+            identicalHyperplanes = set(self.expandDuplicates(int(self.sortOrd[insertionPoint]),tailMask=0))
         else:
             identicalHyperplanes = set()
         cnt = 0
@@ -419,7 +424,7 @@ class vectorSet:
                 break
             cnt += 1
         if foundMatch:
-            parallelHyperplanes = set(self.expandDuplicates(self.sortOrd[insertionPoint],tailMask=self.tailMask)) - identicalHyperplanes
+            parallelHyperplanes = set(self.expandDuplicates(int(self.sortOrd[insertionPoint]),tailMask=self.tailMask)) - identicalHyperplanes
         else:
             parallelHyperplanes = set()
         if not isNew or len(parallelHyperplanes) > 0:
@@ -435,7 +440,7 @@ class vectorSet:
 
 # Numba helper methods go here...
 
-searchType = types.Tuple((types.ListType( types.int64 ),types.int64[::1]))
+searchType = types.Tuple((types.int64[::1],types.int64[::1]))
 
 @njit( \
     types.boolean \
@@ -463,7 +468,7 @@ def vecEqualNb(vec1,vec2, tol, rTol):
 @njit( \
     types.int64 \
     ( \
-       types.ListType( types.float64[::1] ), \
+       types.float64[:,::1], \
        types.int64[::1], \
        types.float64, \
        types.float64 \
@@ -486,7 +491,7 @@ def quickSortRowwise(mat, reorder, tol, rTol):
             reorder[0] = reorder[1]
             reorder[1] = tempOrd
         return -1
-    d = mat[0].shape[0]
+    d = mat.shape[1]
     # Copy pivot to end of array
     tempOrd = reorder[pivot]
     reorder[pivot] = reorder[-1]
@@ -518,14 +523,16 @@ def quickSortRowwise(mat, reorder, tol, rTol):
     return quickSortRowwise(mat,reorder[:pivot],tol,rTol) + quickSortRowwise(mat,reorder[(pivot+1):],tol,rTol)
 
 def getReverseOrder(reorder):
-    return np.array([r[1] for r in sorted(list(zip(reorder,np.arange(len(reorder)))))],dtype=np.int64)
+    revOrd = np.empty(len(reorder),dtype=np.int64)
+    revOrd[np.asarray(reorder,dtype=np.int64)] = np.arange(len(reorder),dtype=np.int64)
+    return revOrd
 
 @njit( \
     searchType \
     ( \
-       types.ListType( types.float64[::1] ), \
+       types.float64[:,::1], \
        types.float64[::1], \
-       types.ListType( types.int64 ), \
+       types.int64[::1], \
        types.int64, \
        types.float64, \
        types.float64 \
@@ -541,14 +548,11 @@ def getRowsBinarySearch(mat, row, revSortOrd, col, tol, rTol):
     windL = 0
     windR = n
     if n == 0:
-        retVal = nb.typed.List.empty_list(nb.int64)
-        return retVal, np.array([0, 0],dtype=np.int64)
+        return revSortOrd[0:0], np.array([0, 0],dtype=np.int64)
     if row[col] > mat[revSortOrd[-1]][col] + tol + rTol * abs(mat[revSortOrd[-1]][col]):
-        retVal = nb.typed.List.empty_list(nb.int64)
-        return retVal, np.array([n, n],dtype=np.int64)
+        return revSortOrd[0:0], np.array([n, n],dtype=np.int64)
     if row[col] < mat[revSortOrd[0]][col] - tol - rTol * abs(mat[revSortOrd[0]][col]):
-        retVal = nb.typed.List.empty_list(nb.int64)
-        return retVal, np.array([0, 0],dtype=np.int64)
+        return revSortOrd[0:0], np.array([0, 0],dtype=np.int64)
 
     windL = 0
     windR = n - 1
@@ -576,14 +580,25 @@ def getRowsBinarySearch(mat, row, revSortOrd, col, tol, rTol):
 
     return revSortOrd[lb:(ub+1)], np.array([lb, ub+1],dtype=np.int64)
 
+@njit( \
+    types.Tuple((types.int64, types.int64, types.boolean)) \
+    ( \
+       types.float64[:,::1], \
+       types.float64[::1], \
+       types.int64[::1], \
+       types.float64, \
+       types.float64 \
+    ), \
+    cache=True \
+)
 def findInsertionPoint(mat, row, revSortOrd, tol, rTol):
     col = 0
     temp = revSortOrd
     loc = 0
-    relLoc = (0,0)
-    if len(mat) == 0:
+    relLoc = np.zeros(2,dtype=np.int64)
+    if mat.shape[0] == 0:
         return 0, 0, True
-    d = mat[0].shape[0]
+    d = mat.shape[1]
     col = d-1
     while len(temp) > 0 and col >= 0:
         loc += relLoc[0]
@@ -599,7 +614,7 @@ def findInsertionPoint(mat, row, revSortOrd, tol, rTol):
 @njit( \
     types.Tuple((types.boolean[::1], types.int64[::1])) \
     ( \
-       types.ListType( types.float64[::1] ), \
+       types.float64[:,::1], \
        types.int64[::1], \
        types.float64, \
        types.float64 \
@@ -612,7 +627,7 @@ def selectUniqueRowsNb(mat, sortOrd, tol, rTol):
     subRows = np.empty(n,dtype=np.int64)
     if n == 0:
         return selIdx, subRows
-    d = mat[0].shape[0]
+    d = mat.shape[1]
     subRows[0] = 0
     cnt = 1
     for r in range(1,n):
@@ -645,22 +660,22 @@ def selectUniqueRows(mat, sortOrd, tol, rTol):
 @njit( \
     types.boolean \
     ( \
-       types.ListType( types.float64[::1] ), \
-       types.ListType(types.int64), \
-       types.ListType( types.float64[::1] ), \
+       types.float64[:,::1], \
+       types.int64[::1], \
+       types.float64[:,::1], \
        types.float64, \
        types.float64 \
     ), \
     cache=True \
 )
 def isSubsetApprox(mat1, sortOrd1, mat2, tol, rTol):
-    n1 = len(mat1)
-    n2 = len(mat2)
+    n1 = mat1.shape[0]
+    n2 = mat2.shape[0]
     if n2 == 0:
         return True
     if n1 == 0:
         return False
-    d = mat1[0].shape[0]
+    d = mat1.shape[1]
     if n2 > n1:
         return False
     foundCnt = 0
@@ -682,24 +697,24 @@ def isSubsetApprox(mat1, sortOrd1, mat2, tol, rTol):
 @njit( \
     types.boolean[:] \
     ( \
-       types.ListType( types.float64[::1] ), \
-       types.ListType(types.int64), \
-       types.ListType( types.float64[::1] ), \
+       types.float64[:,::1], \
+       types.int64[::1], \
+       types.float64[:,::1], \
        types.float64, \
        types.float64 \
     ), \
     cache=True \
 )
 def rowwiseSetComplement(mat1, sortOrd1, mat2, tol, rTol):
-    n1 = len(mat1)
-    n2 = len(mat2)
+    n1 = mat1.shape[0]
+    n2 = mat2.shape[0]
     retVal = np.ones((n2,),dtype=np.bool_)
     if n2 == 0:
         return retVal
     if n1 == 0:
         retVal = np.zeros((n2,),dtype=np.bool_)
         return retVal
-    d = mat1[0].shape[0]
+    d = mat1.shape[1]
     foundCnt = 0
     for idx in range(n2):
         temp = sortOrd1
