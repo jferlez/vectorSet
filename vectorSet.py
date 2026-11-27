@@ -592,21 +592,55 @@ def findInsertionPoint(mat, row, revSortOrd, tol, rTol):
     # Leave here
     return  loc + relLoc[0], loc + relLoc[1], (True if relLoc[1] - relLoc[0] == 0 else False)
 
-def selectUniqueRows(mat, sortOrd, tol, rTol):
+# The duplicate scan of selectUniqueRows below, compiled: row r (in sorted order) is a duplicate if it equals
+# the row before it, or its negative, within the tolerances (the same test as vecEqualNb, entry by entry: with
+# v1 the row before and v2 this row, all |v1 - v2| <= tol + rTol |v2|, or all |v1 + v2| <= tol + rTol |v2|; a NaN
+# never passes). Returns the mask of rows that are not duplicates and their positions in the sorted order.
+@njit( \
+    types.Tuple((types.boolean[::1], types.int64[::1])) \
+    ( \
+       types.ListType( types.float64[::1] ), \
+       types.int64[::1], \
+       types.float64, \
+       types.float64 \
+    ), \
+    cache=True \
+)
+def selectUniqueRowsNb(mat, sortOrd, tol, rTol):
     n = sortOrd.shape[0]
-
-    subRows = []
     selIdx = np.ones(n,dtype=np.bool_)
+    subRows = np.empty(n,dtype=np.int64)
     if n == 0:
-        return selIdx, tuple(subRows)
+        return selIdx, subRows
     d = mat[0].shape[0]
-    subRows.append(0)
+    subRows[0] = 0
+    cnt = 1
     for r in range(1,n):
-        if vecEqualNb(mat[sortOrd[r-1]], mat[sortOrd[r]], tol, rTol):
+        v1 = mat[sortOrd[r-1]]
+        v2 = mat[sortOrd[r]]
+        same = True
+        opposite = True
+        for k in range(d):
+            bound = tol + rTol * abs(v2[k])
+            if not (abs(v1[k] - v2[k]) <= bound):
+                same = False
+            if not (abs(v1[k] + v2[k]) <= bound):
+                opposite = False
+            if not (same or opposite):
+                break
+        if same or opposite:
             selIdx[r] = False
         else:
-            subRows.append(r)
-    return selIdx, subRows
+            subRows[cnt] = r
+            cnt += 1
+    return selIdx, subRows[:cnt].copy()
+
+def selectUniqueRows(mat, sortOrd, tol, rTol):
+    n = sortOrd.shape[0]
+    if n == 0:
+        return np.ones(n,dtype=np.bool_), tuple()
+    selIdx, subRows = selectUniqueRowsNb(mat, sortOrd, tol, rTol)
+    return selIdx, subRows.tolist()
 
 @njit( \
     types.boolean \
