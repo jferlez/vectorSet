@@ -1,18 +1,21 @@
 """
-Checks the array storage of vectorSet (format 2: self.rows is an (N, d) float64 array and self.sortOrd an int64
-array, where formats 0 and 1 kept Numba typed Lists, and Python lists while serialized).
+Checks the array storage of vectorSet (format 3: self.rows is an (N, d) float64 array, self.sortOrd and
+self.revSortOrd are int64 arrays and self.scale is a float64 array; formats 0 and 1 kept the rows and the sort
+order as Numba typed Lists, and as Python lists while serialized, and up to format 2 the scale factors and the
+reverse order were Python lists).
 
-tests/legacy_format1.pkl was written by the format-1 code (commit b6a33d9). Each record has the rows a vectorSet
-was built from, the insertRow/removeRow calls made on it afterwards with what they returned, the object itself
-pickled in serialized form (as the compiler sends and stores it), and what the format-1 code answered for every
-query method.
+tests/legacy_format1.pkl was written by the format-1 code (commit b6a33d9) and tests/legacy_format2.pkl by the
+format-2 code (commit 73ae4af). Each record has the rows a vectorSet was built from, the insertRow/removeRow calls
+made on it afterwards with what they returned, the object itself pickled in serialized form (as the compiler sends
+and stores it), and what the code that wrote it answered for every query method.
 
 Checked:
-  1. every format-1 pickle is upgraded on load and then answers exactly as the format-1 code did;
+  1. every format-1 and format-2 pickle is upgraded on load and then answers exactly as the code that wrote it;
   2. the current code, given the same rows and the same operations, returns the same from every operation and
      ends in the same state (bit for bit: the stored rows, the scale factors, the orders, the unique rows);
-  3. the representation: C-contiguous arrays of the right types, serialize()/deserialize() change nothing, a
-     pickle round trip and a deep copy keep the state;
+  3. the representation: C-contiguous arrays of the right types, also after insertRow and removeRow (one row, a
+     group of duplicates, many rows); serialize()/deserialize() change nothing; a pickle round trip and a deep
+     copy keep the state;
   4. a set that has lost all of its rows still works, also after a pickle round trip (with typed Lists it did
      not: the list came back untyped);
   5. nothing is compiled by Numba while the methods run. (Typed-List methods called from the interpreter were
@@ -20,7 +23,7 @@ Checked:
      signatures and a disk cache, so they are compiled when the module is imported, and only when its source has
      changed.)
 
-Usage: python3 tests/test_array_storage.py [fixture.pkl]
+Usage: python3 tests/test_array_storage.py
 """
 import sys, os, pickle, copy, warnings
 import numpy as np
@@ -66,6 +69,13 @@ def answers(vs, probes):
             'listParallel': [ints(vs.listParallel(p.copy())) for p in probes], \
             'expandDuplicates': [ints(vs.expandDuplicates(i)) for i in range(vs.N)]}
 
+def arraysOk(v):
+    return isinstance(v.rows, np.ndarray) and v.rows.dtype == np.float64 and v.rows.shape == (v.N, v.d) and v.rows.flags['C_CONTIGUOUS'] \
+        and isinstance(v.sortOrd, np.ndarray) and v.sortOrd.dtype == np.int64 and v.sortOrd.shape == (v.N,) and v.sortOrd.flags['C_CONTIGUOUS'] \
+        and isinstance(v.revSortOrd, np.ndarray) and v.revSortOrd.dtype == np.int64 and v.revSortOrd.shape == (v.N,) \
+        and isinstance(v.scale, np.ndarray) and v.scale.dtype == np.float64 and v.scale.shape == (v.N,) \
+        and all(type(i) is int for i in v.uniqRowIdx) and all(type(i) is int and type(j) is int for i, j in v.uniqRowIdxSet.items())
+
 def differences(got, exp):
     out = []
     for ky in exp:
@@ -80,54 +90,60 @@ def differences(got, exp):
         if not same: out.append(ky)
     return out
 
-fixture = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'legacy_format1.pkl')
-recs = pickle.load(open(fixture, 'rb'))['records']
+here = os.path.dirname(os.path.abspath(__file__))
+for fmt in (1, 2):
+    recs = pickle.load(open(os.path.join(here, f'legacy_format{fmt}.pkl'), 'rb'))['records']
 
-# ---- 1. format-1 pickles, upgraded on load
-bad = []; nRows = 0
-for k, rec in enumerate(recs):
-    vs = pickle.loads(rec['pickle']); minus = pickle.loads(rec['minus'])
-    errs = []
-    if vs.formatVersion != V.FORMAT_VERSION or minus.formatVersion != V.FORMAT_VERSION: errs.append('formatVersion')
-    if not (isinstance(vs.rows, np.ndarray) and isinstance(vs.sortOrd, np.ndarray) and vs.serialized is False and vs.rowsPy is None and vs.sortOrdPy is None): errs.append('representation')
-    else:
-        errs += differences(answers(vs, rec['probes']), rec['answers'])
-        if ints(vs.subtractSet(minus)) != rec['answers']['subtractSet']: errs.append('subtractSet')
-    nRows += vs.N
-    if errs: bad.append((k, errs))
-check(f'{len(recs)} format-1 pickles ({nRows} rows): upgraded on load, every answer as the format-1 code gave it', len(bad) == 0, str(bad[:3]))
-
-# ---- 2. the current code on the same rows and operations
-bad = []; nOps = 0
-for k, rec in enumerate(recs):
-    vs = V(rec['rows'].copy(), dirIndep=rec['dirIndep'])
-    errs = []
-    for op, vec, ret in rec['ops']:
-        nOps += 1
-        if op == 'insertRow':
-            if bool(vs.insertRow(vec.copy())) != ret: errs.append('insertRow return')
+    # ---- 1. pickles of an older format, upgraded on load
+    bad = []; nRows = 0
+    for k, rec in enumerate(recs):
+        vs = pickle.loads(rec['pickle']); minus = pickle.loads(rec['minus'])
+        errs = []
+        if vs.formatVersion != V.FORMAT_VERSION or minus.formatVersion != V.FORMAT_VERSION: errs.append('formatVersion')
+        if not (arraysOk(vs) and arraysOk(minus) and vs.serialized is False and vs.rowsPy is None and vs.sortOrdPy is None): errs.append('representation')
         else:
-            r = vs.removeRow(vec=vec.copy())
-            if (ints(r[0]), ints(r[1])) != (ret[0], ret[1]): errs.append('removeRow return')
-    errs += differences(answers(vs, rec['probes']), rec['answers'])
-    minus = V(pickle.loads(rec['minus']).getRows(), dirIndep=rec['dirIndep'])
-    if ints(vs.subtractSet(minus)) != rec['answers']['subtractSet']: errs.append('subtractSet')
-    if errs: bad.append((k, errs))
-check(f'{len(recs)} sets built by the current code, {nOps} insertRow/removeRow calls: same returns and the same final state, bit for bit', len(bad) == 0, str(bad[:3]))
+            errs += differences(answers(vs, rec['probes']), rec['answers'])
+            if ints(vs.subtractSet(minus)) != rec['answers']['subtractSet']: errs.append('subtractSet')
+        nRows += vs.N
+        if errs: bad.append((k, errs))
+    check(f'{len(recs)} format-{fmt} pickles ({nRows} rows): upgraded on load, every answer as the format-{fmt} code gave it', len(bad) == 0, str(bad[:3]))
+
+    # ---- 2. the current code on the same rows and operations
+    bad = []; nOps = 0
+    for k, rec in enumerate(recs):
+        vs = V(rec['rows'].copy(), dirIndep=rec['dirIndep'])
+        errs = []
+        for op, vec, ret in rec['ops']:
+            nOps += 1
+            if op == 'insertRow':
+                if bool(vs.insertRow(vec.copy())) != ret: errs.append('insertRow return')
+            else:
+                r = vs.removeRow(vec=vec.copy())
+                if (ints(r[0]), ints(r[1])) != (ret[0], ret[1]): errs.append('removeRow return')
+            if not arraysOk(vs): errs.append('representation after ' + op)
+        errs += differences(answers(vs, rec['probes']), rec['answers'])
+        minus = V(pickle.loads(rec['minus']).getRows(), dirIndep=rec['dirIndep'])
+        if ints(vs.subtractSet(minus)) != rec['answers']['subtractSet']: errs.append('subtractSet')
+        if errs: bad.append((k, errs))
+    check(f'{len(recs)} sets built by the current code, {nOps} insertRow/removeRow calls: same returns and the same final state as the format-{fmt} code, bit for bit', len(bad) == 0, str(bad[:3]))
 
 # ---- 3. the representation
 rng = np.random.default_rng(0)
 M = rng.standard_normal((26, 4)); M[7] = -2.0 * M[3]; M[9] = M[3]
 vs = V(M.copy())
-def arraysOk(v):
-    return isinstance(v.rows, np.ndarray) and v.rows.dtype == np.float64 and v.rows.shape == (v.N, v.d) and v.rows.flags['C_CONTIGUOUS'] \
-        and isinstance(v.sortOrd, np.ndarray) and v.sortOrd.dtype == np.int64 and v.sortOrd.shape == (v.N,) and v.sortOrd.flags['C_CONTIGUOUS']
-check('constructor: rows is a C-contiguous (N, d) float64 array, sortOrd an int64 array', arraysOk(vs))
+check('constructor: rows is a C-contiguous (N, d) float64 array, sortOrd and revSortOrd int64 arrays, scale a float64 array', arraysOk(vs))
 vec = rng.standard_normal(4)
 vs.insertRow(vec.copy()); okIns = arraysOk(vs) and vs.N == 27
 vs.removeRow(vec=vec.copy()); okRem = arraysOk(vs) and vs.N == 26
-vs.removeRow(idxOrigOrder=3, includeDup=True)
-check('insertRow and removeRow keep that representation', okIns and okRem and arraysOk(vs) and vs.N == 23, f'{vs.N}')
+removedDup = vs.removeRow(idxOrigOrder=3, includeDup=True)
+okDup = arraysOk(vs) and vs.N == 23 and ints(removedDup[0]) == [3, 7, 9] and removedDup[1] == []
+# many rows, one at a time, against a set built from what should be left
+big = rng.standard_normal((400, 5)); vb = V(big.copy()); gone = sorted(rng.permutation(400)[:150].tolist(), reverse=True)
+for i in gone: vb.removeRow(idxOrigOrder=i)
+left = np.delete(big, gone, axis=0); ref = V(left.copy())
+okMany = arraysOk(vb) and vb.N == 250 and np.array_equal(vb.getRows(), ref.getRows()) and np.array_equal(vb.sortOrd, ref.sortOrd) \
+    and np.array_equal(vb.revSortOrd, ref.revSortOrd) and vb.uniqRowIdx == ref.uniqRowIdx and vb.uniqRowIdxSet == ref.uniqRowIdxSet
+check('insertRow and removeRow (one row, a group of duplicates, 150 of 400 rows) keep that representation and the right contents', okIns and okRem and okDup and okMany, f'{vs.N} {removedDup} {vb.N}')
 vs = V(M.copy()); probes = [M[3], -M[3], rng.standard_normal(4)]
 before = answers(vs, probes); rowsId, ordId = id(vs.rows), id(vs.sortOrd)
 ret = vs.serialize()

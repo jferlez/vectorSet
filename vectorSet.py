@@ -20,7 +20,9 @@ class vectorSet:
     #                Numba typed Lists, with Python-list copies rowsPy/sortOrdPy while "serialized"). Arrays
     #                pickle as they are, so serialize()/deserialize() have nothing left to do. The arrays are
     #                never changed in place after the constructor: a change replaces them.
-    FORMAT_VERSION = 2
+    #    3:          self.scale (float64) and self.revSortOrd (int64) are arrays as well (before: Python lists),
+    #                so that no method has to loop over all rows in the interpreter
+    FORMAT_VERSION = 3
 
     def __init__(self, rows, tol=1e-9, rTol=1e-9, dirIndep=True, tailMask=1):
         self.formatVersion = vectorSet.FORMAT_VERSION
@@ -38,12 +40,12 @@ class vectorSet:
             scale = self.dirScales(rows)
         else:
             scale = np.ones(self.N,dtype=np.float64)
-        self.scale = scale.tolist()
+        self.scale = np.ascontiguousarray(scale,dtype=np.float64)
         self.rows = np.ascontiguousarray(scale.reshape(-1,1) * rows)
         self.rowsPy = None
         self.sortOrd = np.arange(self.N,dtype=np.int64)
         quickSortRowwise(self.rows, self.sortOrd, self.tol, self.rTol)
-        self.revSortOrd = getReverseOrder(self.sortOrd).tolist()
+        self.revSortOrd = getReverseOrder(self.sortOrd)
         _ , self.uniqRowIdx = selectUniqueRows(self.rows,self.sortOrd,self.tol,self.rTol)
         self.sortOrdPy = None
         self.uniqRowIdx = sorted(self.sortOrd[np.array(self.uniqRowIdx,dtype=np.int64)].tolist())
@@ -99,6 +101,9 @@ class vectorSet:
         changed = []
         if version < 2:
             self.rowsToArrays()
+        if version < 3:
+            self.scale = np.array([float(sc) for sc in self.scale],dtype=np.float64)
+            self.revSortOrd = np.array([int(i) for i in self.revSortOrd],dtype=np.int64)
         if version < 1 and self.dirIndep and self.N > 0:
             rows = self.rows.copy()
             # The stored rows are already scaled, so only the sign of the new scale factor matters
@@ -108,11 +113,11 @@ class vectorSet:
                 oldUniq = list(self.uniqRowIdx)
                 for i in changed:
                     rows[i] = -rows[i]
-                    self.scale[i] = -self.scale[i]
+                self.scale = np.where(sgn < 0, -self.scale, self.scale)
                 # The changed rows have a new place in the sort order
                 sortOrd = np.arange(self.N,dtype=np.int64)
                 quickSortRowwise(rows, sortOrd, self.tol, self.rTol)
-                self.revSortOrd = getReverseOrder(sortOrd).tolist()
+                self.revSortOrd = getReverseOrder(sortOrd)
                 self.rows, self.sortOrd = rows, sortOrd
                 # The set of unique rows is deliberately left as it is: users of this object (e.g. the
                 # non-redundant hyperplanes of a flipConstraints object) refer to those rows. If two of them
@@ -143,7 +148,7 @@ class vectorSet:
         if len(idx) == 0:
             return np.array([])
         idx = np.asarray(idx,dtype=np.int64)
-        return (1/np.array(self.scale,dtype=np.float64)[idx]).reshape(-1,1) * self.rows[idx]
+        return (1/self.scale[idx]).reshape(-1,1) * self.rows[idx]
 
     def getRows(self):
         return self.unscaledRows(np.arange(self.N))
@@ -186,11 +191,9 @@ class vectorSet:
         if isNew or includeDup:
             self.N += 1
             self.rows = np.ascontiguousarray(np.vstack((self.rows, iVec.reshape(1,-1))))
-            self.scale.append(scale)
+            self.scale = np.append(self.scale, scale)
             self.sortOrd = np.ascontiguousarray(np.insert(self.sortOrd, insertionPoint, self.N - 1))
-            for rowIdx in self.sortOrd[(insertionPoint+1):].tolist():
-                self.revSortOrd[rowIdx] += 1
-            self.revSortOrd.append(insertionPoint)
+            self.revSortOrd = getReverseOrder(self.sortOrd)
             if isNew:
                 newRowIdx = int(self.sortOrd[insertionPoint])
                 if self.uniqRowSorted:
@@ -237,40 +240,42 @@ class vectorSet:
                 # print(self.rows[idx]/self.scale[idx])
                 if includeDup or (idxOrigOrder is not None and idx == idxOrigOrder) \
                         or (idxOrigOrder is None and vecEqualNb(self.rows[idx]/self.scale[idx],origVec,self.tol,self.rTol)):
-                    toRemove.append([idx,self.revSortOrd[idx],0])
-            removed = []
-            # remUniqRow: the row removed in the current iteration is a unique row; remAnyUniqRow: any of the
-            # removed rows was a unique row (in which case a remaining duplicate has to take its place below)
-            remAnyUniqRow = False
-            while len(toRemove) > 0:
-                rowIdx, sortIdx, cnt = toRemove.pop()
-                removed.append(rowIdx + cnt)
-                remUniqRow = False
-                for i in range(len(toRemove)):
-                    if toRemove[i][0] > rowIdx:
-                        toRemove[i][0] -= 1
-                        toRemove[i][2] += 1
-                    if toRemove[i][1] > sortIdx:
-                        toRemove[i][1] -= 1
-                for i in range(len(self.sortOrd)):
-                    if i in self.uniqRowIdxSet and i >= rowIdx:
-                        temp = self.uniqRowIdxSet[i]
-                        del self.uniqRowIdxSet[i]
-                        if i == rowIdx:
-                            remUniqRow = True
-                            remAnyUniqRow = True
-                        else:
-                            self.uniqRowIdxSet[i-1] = temp if not remUniqRow else temp - 1
-                sortOrd = np.delete(self.sortOrd, sortIdx)
-                self.sortOrd = np.ascontiguousarray(np.where(sortOrd > rowIdx, sortOrd - 1, sortOrd))
-                self.revSortOrd.pop(rowIdx)
-                self.rows = np.ascontiguousarray(np.delete(self.rows, rowIdx, axis=0))
-                self.scale.pop(rowIdx)
-                for i in range(len(self.sortOrd)):
-                    if self.revSortOrd[i] > sortIdx:
-                        self.revSortOrd[i] -= 1
+                    toRemove.append(idx)
+            if len(toRemove) == 0:
+                return [], []
+            # All of the selected rows are removed at once. The rows that stay keep their relative order, both as
+            # rows and in the sort order, and are renumbered: newIdx[i] is the index of row i afterwards.
+            removed = sorted(toRemove)
+            keep = np.ones(self.N,dtype=np.bool_)
+            keep[np.array(removed,dtype=np.int64)] = False
+            newIdx = np.cumsum(keep,dtype=np.int64) - 1
+            # remAnyUniqRow: any of the removed rows was a unique row (in which case a remaining duplicate has to
+            # take its place below)
+            remAnyUniqRow = any(idx in self.uniqRowIdxSet for idx in removed)
+            if len(removed) == 1:
+                self.rows = np.ascontiguousarray(np.delete(self.rows, removed[0], axis=0))
+                self.scale = np.delete(self.scale, removed[0])
+            else:
+                self.rows = np.ascontiguousarray(self.rows[keep])
+                self.scale = self.scale[keep]
+            self.sortOrd = np.ascontiguousarray(newIdx[self.sortOrd[keep[self.sortOrd]]])
+            self.revSortOrd = getReverseOrder(self.sortOrd)
             self.N = self.rows.shape[0]
-            self.uniqRowIdx = sorted(list(self.uniqRowIdxSet.keys()))
+            # The unique rows before the first removed row keep their index and their position in uniqRowIdx; only
+            # the ones from there on are dropped or renumbered (none at all when the newest rows are removed)
+            if not self.uniqRowSorted:
+                self.uniqRowIdx = sorted(self.uniqRowIdxSet.keys())
+                self.uniqRowIdxSet = {i:idx for idx, i in enumerate(self.uniqRowIdx)}
+                self.uniqRowSorted = True
+            tailPos = bisect.bisect_left(self.uniqRowIdx, removed[0])
+            tail = self.uniqRowIdx[tailPos:]
+            del self.uniqRowIdx[tailPos:]
+            for idx in tail:
+                del self.uniqRowIdxSet[idx]
+            tail = np.array(tail,dtype=np.int64)
+            tail = newIdx[tail[keep[tail]]].tolist()
+            self.uniqRowIdxSet.update(zip(tail, range(tailPos, tailPos + len(tail))))
+            self.uniqRowIdx.extend(tail)
             added = []
             if remAnyUniqRow:
                 _, insertionPoint, isNew = findInsertionPoint(self.rows, iVec, self.sortOrd, self.tol, self.rTol)
@@ -292,7 +297,7 @@ class vectorSet:
         if vec is None and idxOrigOrder is not None:
             if idxOrigOrder >= self.N or idxOrigOrder < 0:
                 raise ValueError(f'expandDuplicates: argument must be between {0} and {self.N}')
-            origIdx = self.revSortOrd[idxOrigOrder]
+            origIdx = int(self.revSortOrd[idxOrigOrder])
             ref = self.rows[idxOrigOrder]
         elif vec is not None and idxOrigOrder is None:
             assert isinstance(vec,np.ndarray) and vec.flatten().size == self.d
@@ -358,9 +363,10 @@ class vectorSet:
             self.deserialize()
         subRows = rowwiseSetComplement(minusSet.rows, minusSet.sortOrd, self.rows, self.tol, self.rTol)
         if subUniqueRows:
-            return sorted(list(self.uniqRowIdxSet.keys() & set(np.nonzero(subRows)[0])))
+            uniq = np.array(self.uniqRowIdx,dtype=np.int64)
+            return sorted(uniq[subRows[uniq]].tolist())
         else:
-            return sorted(list(np.nonzero(subRows)[0]))
+            return list(np.nonzero(subRows)[0])
 
     def isElem(self, vec):
         if not ( isinstance(vec,np.ndarray) and self.d == math.prod(vec.shape) and vec.dtype == np.float64 ):
